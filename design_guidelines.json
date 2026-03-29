@@ -1,0 +1,105 @@
+{
+  "identity": {
+    "name": "DreamerZ_Beta",
+    "persona": "E1: The Anti-AI Designer",
+    "tone": "Premium, Trustworthy, Future-Forward, Teen-Friendly (but not childish)",
+    "target_audience": "Indian Teenagers (12-16) & Parents"
+  },
+  "typography": {
+    "primary_font": "Plus Jakarta Sans",
+    "heading_font": "Outfit",
+    "mono_font": "Space Mono",
+    "scale": {
+      "h1": "text-5xl md:text-7xl font-bold tracking-tight leading-[1.1]",
+      "h2": "text-4xl md:text-5xl font-semibold tracking-tight",
+      "h3": "text-2xl md:text-3xl font-medium",
+      "body": "text-base md:text-lg leading-relaxed text-slate-600",
+      "small": "text-sm font-medium tracking-wide uppercase text-slate-500"
+    }
+  },
+  "colors": {
+    "theme": "light",
+    "palette": {
+      "background": "#ffffff",
+      "foreground": "#0f172a",
+      "primary": "#4338ca",
+      "primary_foreground": "#ffffff",
+      "secondary": "#f1f5f9",
+      "secondary_foreground": "#0f172a",
+      "accent": "#3b82f6",
+      "accent_foreground": "#ffffff",
+      "muted": "#f8fafc",
+      "muted_foreground": "#64748b",
+      "border": "#e2e8f0",
+      "input": "#f1f5f9",
+      "ring": "#4338ca"
+    },
+    "gradients": {
+      "hero": "bg-gradient-to-br from-indigo-50 via-white to-blue-50",
+      "glass": "bg-white/70 backdrop-blur-xl border border-white/20 shadow-xl",
+      "subtle_glow": "shadow-[0_0_40px_-10px_rgba(67,56,202,0.15)]"
+    }
+  },
+  "layout_strategy": {
+    "container": "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8",
+    "spacing": {
+      "section_gap": "py-24 md:py-32",
+      "element_gap": "gap-6 md:gap-8"
+    },
+    "grid_system": {
+      "dashboard": "grid grid-cols-1 md:grid-cols-12 gap-6",
+      "features": "grid grid-cols-1 md:grid-cols-3 gap-8"
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-primary text-primary-foreground hover:bg-primary/90 h-11 px-8 rounded-full font-medium transition-all shadow-lg shadow-primary/20 hover:shadow-primary/30 hover:-translate-y-0.5",
+      "secondary": "bg-white text-foreground border border-slate-200 hover:bg-slate-50 h-11 px-8 rounded-full font-medium transition-all",
+      "ghost": "hover:bg-slate-100 text-slate-600 hover:text-foreground h-10 px-4 rounded-full"
+    },
+    "cards": {
+      "base": "bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-all duration-300 group",
+      "glass": "bg-white/80 backdrop-blur-md border border-white/50 shadow-lg rounded-2xl",
+      "interactive": "cursor-pointer hover:border-primary/20 hover:ring-1 hover:ring-primary/20"
+    },
+    "inputs": {
+      "base": "h-12 rounded-xl border-slate-200 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-primary/20 transition-all"
+    }
+  },
+  "visual_enhancers": {
+    "radius": "rounded-2xl",
+    "shadows": {
+      "soft": "shadow-[0_8px_30px_rgb(0,0,0,0.04)]",
+      "glow": "shadow-[0_0_20px_rgba(59,130,246,0.5)]"
+    },
+    "animations": {
+      "hover_lift": "transition-transform duration-300 hover:-translate-y-1",
+      "fade_in": "animate-in fade-in duration-700 slide-in-from-bottom-4"
+    }
+  },
+  "assets": {
+    "images": {
+      "hero_main": "https://images.pexels.com/photos/5212687/pexels-photo-5212687.jpeg",
+      "hero_secondary": "https://images.pexels.com/photos/9159059/pexels-photo-9159059.jpeg",
+      "coding_group": "https://images.pexels.com/photos/4709284/pexels-photo-4709284.jpeg",
+      "abstract_bg": "https://images.unsplash.com/photo-1692035072849-93a511f35b2c"
+    },
+    "icons": "lucide-react"
+  },
+  "instructions_to_main_agent": [
+    "REMOVE all 'Neo-Brutalist' styles (thick black borders, hard shadows).",
+    "Use the 'Glassmorphism' style for the Prompt Lab and overlays.",
+    "Ensure the design feels 'Premium' (lots of white space, subtle shadows, refined typography).",
+    "Use 'Indian' context images where appropriate to match the target audience.",
+    "Implement 'Bento' grids for the dashboard layout.",
+    "Use 'Sonner' for toasts.",
+    "Keep the existing functionality but completely overhaul the CSS/Tailwind classes."
+  ],
+  "universal_guidelines": [
+    "Do not use gradients for text unless it's a very subtle brand moment.",
+    "Avoid 'Inter' for headings; use 'Outfit'.",
+    "Use 2-3x more spacing than typical designs.",
+    "Every interaction needs a micro-animation.",
+    "Ensure all interactive elements have 'data-testid'."
+  ]
+}
