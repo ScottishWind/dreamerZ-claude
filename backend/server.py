@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Request
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Header, Depends
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -10,8 +10,11 @@ from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
+from passlib.context import CryptContext
+import jwt
+from jwt import ExpiredSignatureError, InvalidTokenError
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -31,6 +34,14 @@ api_router = APIRouter(prefix="/api")
 rate_limit_store = defaultdict(list)
 RATE_LIMIT_REQUESTS = 10
 RATE_LIMIT_WINDOW = 60  # seconds
+
+# Authentication helpers
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+JWT_SECRET = os.environ.get('JWT_SECRET', 'change-this-secret')
+JWT_ALGORITHM = os.environ.get('JWT_ALGORITHM', 'HS256')
+JWT_EXPIRATION_MINUTES = int(os.environ.get('JWT_EXPIRATION_MINUTES', '1440'))  # 24 hours
+EMAIL_REGEX = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+USERNAME_REGEX = re.compile(r'^[a-zA-Z0-9_]{3,30}$')
 
 # Safety filter patterns
 UNSAFE_PATTERNS = [
@@ -145,6 +156,28 @@ class AIResponse(BaseModel):
     is_demo: bool = False
     tokens_used: Optional[int] = None
 
+class UserCreate(BaseModel):
+    username: str
+    email: str
+    password: str
+
+class UserLogin(BaseModel):
+    username: Optional[str] = None
+    email: Optional[str] = None
+    password: str
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    username: str
+    email: str
+    created_at: str
+
+class UserInfoResponse(BaseModel):
+    username: str
+    email: str
+    created_at: str
+
 # Helper functions
 def check_rate_limit(client_ip: str) -> bool:
     """Check if client has exceeded rate limit"""
@@ -168,6 +201,52 @@ def check_safety(text: str) -> tuple[bool, str]:
         if re.search(pattern, text_lower):
             return False, SAFETY_MESSAGE
     return True, ""
+
+# Authentication utility functions
+
+def get_password_hash(password: str) -> str:
+    return pwd_context.hash(password)
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=JWT_EXPIRATION_MINUTES))
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def decode_access_token(token: str) -> dict:
+    try:
+        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token has expired")
+    except InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+
+def get_user_by_login_identifier(username: Optional[str], email: Optional[str]):
+    if email:
+        return db.users.find_one({"email": email.lower()})
+    if username:
+        return db.users.find_one({"username": username.lower()})
+    return None
+
+async def get_current_user(authorization: Optional[str] = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Authorization header missing")
+    token = authorization.split(" ", 1)[1]
+    payload = decode_access_token(token)
+    username = payload.get("sub")
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid token payload")
+    user = await db.users.find_one({"username": username.lower()}, {"hashed_password": 0})
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user
 
 async def get_ai_response(prompt: str, context: str = None, mode: str = "default") -> tuple[str, bool]:
     """Get AI response, with demo fallback"""
@@ -224,6 +303,77 @@ Your guidelines:
         return DEMO_RESPONSES["default"], True
 
 # Routes
+
+@app.on_event("startup")
+async def create_db_indexes():
+    await db.users.create_index("username", unique=True)
+    await db.users.create_index("email", unique=True)
+
+@api_router.post("/auth/register", response_model=UserInfoResponse)
+async def register_user(user: UserCreate):
+    username = user.username.strip().lower()
+    email = user.email.strip().lower()
+    password = user.password.strip()
+
+    if not USERNAME_REGEX.match(username):
+        raise HTTPException(status_code=400, detail="Username must be 3-30 characters and can only contain letters, numbers, and underscores.")
+    if not EMAIL_REGEX.match(email):
+        raise HTTPException(status_code=400, detail="Please provide a valid email address.")
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters long.")
+
+    existing_user = await db.users.find_one({"$or": [{"username": username}, {"email": email}]})
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Username or email is already in use.")
+
+    hashed_password = get_password_hash(password)
+    created_at = datetime.now(timezone.utc).isoformat()
+    user_doc = {
+        "username": username,
+        "email": email,
+        "hashed_password": hashed_password,
+        "created_at": created_at,
+        "updated_at": created_at,
+        "last_login": None
+    }
+    await db.users.insert_one(user_doc)
+
+    return {
+        "username": username,
+        "email": email,
+        "created_at": created_at
+    }
+
+@api_router.post("/auth/login", response_model=TokenResponse)
+async def login_user(credentials: UserLogin):
+    username = credentials.username.strip().lower() if credentials.username else None
+    email = credentials.email.strip().lower() if credentials.email else None
+
+    if not username and not email:
+        raise HTTPException(status_code=400, detail="Please provide a username or email.")
+
+    user = await get_user_by_login_identifier(username, email)
+    if not user or not verify_password(credentials.password, user.get("hashed_password", "")):
+        raise HTTPException(status_code=401, detail="Invalid username, email, or password.")
+
+    token = create_access_token({"sub": user["username"], "email": user["email"]})
+    await db.users.update_one({"_id": user["_id"]}, {"$set": {"last_login": datetime.now(timezone.utc).isoformat()}})
+
+    return {
+        "access_token": token,
+        "username": user["username"],
+        "email": user["email"],
+        "created_at": user["created_at"]
+    }
+
+@api_router.get("/auth/me", response_model=UserInfoResponse)
+async def get_profile(current_user: dict = Depends(get_current_user)):
+    return {
+        "username": current_user["username"],
+        "email": current_user["email"],
+        "created_at": current_user["created_at"]
+    }
+
 @api_router.get("/")
 async def root():
     return {"message": "DreamerZ Beta API", "version": "1.0.0"}

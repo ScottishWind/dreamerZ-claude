@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: dreamerz-backend
+    env: python
+    region: oregon
+    plan: starter
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    autoDeploy: true
+
+  - type: static
+    name: dreamerz-frontend
+    env: static
+    region: oregon
+    plan: starter
+    rootDir: frontend
+    buildCommand: yarn install && yarn build
+    publishPath: build
+    autoDeploy: true
