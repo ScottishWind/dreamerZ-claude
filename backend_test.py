@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Dict, Any
 
 # Use the public backend URL from frontend .env
-BASE_URL = "https://teenaitools.preview.emergentagent.com/api"
+BASE_URL = "http://localhost:8001/api"
 
 class DreamerZAPITester:
     def __init__(self):

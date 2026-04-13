@@ -1,0 +1,94 @@
+{
+  "pricing_plans": [
+    {
+      "id": "ai-learning",
+      "name": "AI Learning",
+      "tagline": "Master 5 AI tools with hands-on modules",
+      "price": 199,
+      "original_price": 499,
+      "currency": "INR",
+      "emoji": "\ud83e\udd16",
+      "color": "indigo",
+      "gradient": "from-indigo-600 to-violet-600",
+      "light_bg": "from-indigo-50 to-violet-50",
+      "badge": "5 Tools",
+      "popular": false,
+      "highlights": [
+        "ChatGPT, Claude, Gemini, Canva & Syllaby",
+        "18+ hands-on learning modules",
+        "Prompt engineering mastery",
+        "Quizzes & XP tracking",
+        "Lifetime access"
+      ],
+      "cta": "Enroll Now \u2014 \u20b9199",
+      "payment_link": "#payment-ai",
+      "course_path": "/tools",
+      "sort_order": 1,
+      "is_active": true
+    },
+    {
+      "id": "spoken-english",
+      "name": "Spoken English",
+      "tagline": "30-day course built for Bengali teens",
+      "price": 299,
+      "original_price": 799,
+      "currency": "INR",
+      "emoji": "\ud83d\udde3\ufe0f",
+      "color": "rose",
+      "gradient": "from-rose-500 to-pink-500",
+      "light_bg": "from-rose-50 to-pink-50",
+      "badge": "30 Days",
+      "popular": true,
+      "highlights": [
+        "30 structured daily lessons",
+        "AI roleplay with 5 characters",
+        "Vocab with Bengali meanings",
+        "Daily dialogues & speaking tasks",
+        "Weekly tests & progress tracking"
+      ],
+      "cta": "Enroll Now \u2014 \u20b9299",
+      "payment_link": "#payment-english",
+      "course_path": "/tools/spoken-english-30day",
+      "sort_order": 2,
+      "is_active": true
+    }
+  ],
+  "bundle_payment_link": "#payment-bundle",
+  "faqs": [
+    {
+      "id": "faq-age",
+      "question": "What age group is this for?",
+      "answer": "DreamerZ is designed for Bengali teenagers aged 12-18, but anyone interested in learning AI tools or improving their spoken English can benefit.",
+      "sort_order": 1,
+      "is_active": true
+    },
+    {
+      "id": "faq-prior",
+      "question": "Do I need any prior knowledge?",
+      "answer": "No! Both courses start from absolute basics. The AI course starts from \"What is AI?\" and the English course starts from simple greetings.",
+      "sort_order": 2,
+      "is_active": true
+    },
+    {
+      "id": "faq-payment",
+      "question": "Is the payment one-time?",
+      "answer": "Yes. You pay once and get lifetime access to all modules, updates, and future content additions. No recurring charges.",
+      "sort_order": 3,
+      "is_active": true
+    },
+    {
+      "id": "faq-mobile",
+      "question": "Can I access it on my phone?",
+      "answer": "Absolutely. DreamerZ works on any device \u2014 phone, tablet, or computer. Learn anywhere, anytime.",
+      "sort_order": 4,
+      "is_active": true
+    },
+    {
+      "id": "faq-help",
+      "question": "What if I need help?",
+      "answer": "Each module has guided explanations, Bengali tips, and AI-powered practice. You can also reach out to us for support.",
+      "sort_order": 5,
+      "is_active": true
+    }
+  ]
+}

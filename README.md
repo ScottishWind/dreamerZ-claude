@@ -41,7 +41,7 @@ JWT_SECRET=your_jwt_secret            # Required for authentication tokens
 ```bash
 # Terminal 1 - Backend
 cd backend
-uvicorn server:app --host 0.0.0.0 --port 8001 --reload
+python -m uvicorn server:app --host 0.0.0.0 --port 8001 --reload
 
 # Terminal 2 - Frontend new addition
 cd frontend

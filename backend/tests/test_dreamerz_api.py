@@ -178,7 +178,7 @@ class TestCORSHeaders:
     def test_cors_preflight(self):
         """Test CORS preflight request"""
         headers = {
-            "Origin": "https://teenaitools.preview.emergentagent.com",
+            "Origin": "http://localhost:3000",
             "Access-Control-Request-Method": "POST",
             "Access-Control-Request-Headers": "Content-Type"
         }

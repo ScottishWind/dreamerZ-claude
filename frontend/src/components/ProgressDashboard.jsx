@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
+import {
   Trophy, Zap, Target, RotateCcw, ChevronRight,
-  BookOpen, CheckCircle2, AlertTriangle, Sparkles
+  BookOpen, CheckCircle2, AlertTriangle, Sparkles, Mic
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from './ui/button';
@@ -10,19 +10,25 @@ import { Progress } from './ui/progress';
 import { StreakBadge } from './StreakBadge';
 import { toolsData, getTotalModules, getTotalXP } from '../data/toolsData';
 
-export const ProgressDashboard = ({ 
-  progress, 
-  getToolCompletion, 
+export const ProgressDashboard = ({
+  progress,
+  getToolCompletion,
   getOverallCompletion,
   resetProgress,
   totalXP,
-  streakInfo
+  streakInfo,
+  apiTools = []
 }) => {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
-  
-  const overallCompletion = getOverallCompletion();
-  const totalModulesCount = getTotalModules();
-  const maxXP = getTotalXP();
+
+  // Get API-only tools (not in static toolsData)
+  const staticToolIds = new Set(toolsData.map(t => t.id));
+  const extraApiTools = apiTools.filter(t => !staticToolIds.has(t.id));
+  const extraModuleCount = extraApiTools.reduce((sum, t) => sum + (t.modules?.length || 0), 0);
+
+  const overallCompletion = getOverallCompletion(extraModuleCount);
+  const totalModulesCount = getTotalModules() + extraModuleCount;
+  const maxXP = getTotalXP() + extraApiTools.reduce((sum, t) => sum + (t.xpReward || t.totalXP || 0), 0);
   
   // Calculate completed modules count
   const completedModulesCount = Object.values(progress.completedModules || {}).reduce(
@@ -100,10 +106,11 @@ export const ProgressDashboard = ({
             <CheckCircle2 className="w-5 h-5 opacity-50" />
           </div>
           <div className="text-3xl font-bold">
-            {toolsData.filter(t => getToolCompletion(t.id) === 100).length}
+            {toolsData.filter(t => getToolCompletion(t.id) === 100).length +
+             extraApiTools.filter(t => getToolCompletion(t.id, t.modules?.length) === 100).length}
           </div>
           <p className="text-white/80 text-sm">Tools Mastered</p>
-          <p className="text-white/60 text-xs mt-1">of {toolsData.length} total</p>
+          <p className="text-white/60 text-xs mt-1">of {toolsData.length + extraApiTools.length} total</p>
         </motion.div>
       </div>
 
@@ -117,15 +124,29 @@ export const ProgressDashboard = ({
         </div>
         
         <div className="divide-y divide-slate-100">
-          {toolsData.map((tool, index) => {
-            const completion = getToolCompletion(tool.id);
+          {/* Combine static tools + API-only tools */}
+          {[
+            ...toolsData.map(t => ({ ...t, _source: 'static' })),
+            ...extraApiTools.map(t => ({
+              id: t.id,
+              name: t.name,
+              icon: t.icon || '🗣️',
+              color: t.color || '#f43f5e',
+              modules: t.modules || [],
+              _source: 'api'
+            }))
+          ].map((tool, index) => {
+            const moduleCount = tool.modules?.length || 0;
+            const completion = tool._source === 'api'
+              ? getToolCompletion(tool.id, moduleCount)
+              : getToolCompletion(tool.id);
             const toolProgress = progress.completedModules?.[tool.id] || {};
             const completedCount = Object.values(toolProgress).filter(m => m.completed).length;
             const totalAttempts = Object.values(toolProgress).reduce((acc, m) => acc + (m.attempts || 0), 0);
-            const avgScore = completedCount > 0 
+            const avgScore = completedCount > 0
               ? Math.round(Object.values(toolProgress).reduce((acc, m) => acc + (m.quizScore || 0), 0) / completedCount)
               : 0;
-            
+
             return (
               <motion.div
                 key={tool.id}
@@ -137,7 +158,7 @@ export const ProgressDashboard = ({
                 <Link to={`/tools/${tool.id}`} className="block" data-testid={`progress-tool-${tool.id}`}>
                   <div className="flex items-center gap-4">
                     {/* Tool Icon */}
-                    <div 
+                    <div
                       className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0"
                       style={{ backgroundColor: `${tool.color}15` }}
                     >
@@ -148,15 +169,20 @@ export const ProgressDashboard = ({
                     <div className="flex-grow min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <h4 className="font-semibold text-slate-900">{tool.name}</h4>
+                        {tool._source === 'api' && (
+                          <span className="bg-rose-100 text-rose-600 text-xs font-semibold px-2 py-0.5 rounded-full flex items-center gap-1">
+                            <Mic className="w-3 h-3" /> English
+                          </span>
+                        )}
                         {completion === 100 && (
                           <span className="bg-emerald-100 text-emerald-700 text-xs font-semibold px-2 py-0.5 rounded-full">
                             Complete!
                           </span>
                         )}
                       </div>
-                      
+
                       <div className="flex items-center gap-4 text-xs text-slate-500">
-                        <span>{completedCount}/{tool.modules.length} modules</span>
+                        <span>{completedCount}/{moduleCount} modules</span>
                         {completedCount > 0 && (
                           <>
                             <span>•</span>
@@ -170,11 +196,11 @@ export const ProgressDashboard = ({
                       {/* Progress Bar */}
                       <div className="mt-2 flex items-center gap-3">
                         <div className="flex-grow">
-                          <Progress 
-                            value={completion} 
+                          <Progress
+                            value={completion}
                             className="h-2"
-                            style={{ 
-                              '--progress-background': tool.color 
+                            style={{
+                              '--progress-background': tool.color
                             }}
                           />
                         </div>

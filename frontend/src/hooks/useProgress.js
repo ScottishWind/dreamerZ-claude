@@ -109,11 +109,14 @@ export const useProgress = () => {
     setProgress(prev => {
       const toolProgress = prev.completedModules[toolId] || {};
       const moduleProgress = toolProgress[moduleId] || { attempts: 0, bestScore: 0 };
-      
+
       // Calculate XP bonus for first completion
       const isFirstCompletion = !moduleProgress.completed;
       const tool = toolsData.find(t => t.id === toolId);
-      const xpGain = isFirstCompletion && tool ? Math.floor(tool.xpReward / tool.modules.length) : 0;
+      // For API-loaded tools not in static toolsData, award a flat 25 XP per module
+      const xpGain = isFirstCompletion
+        ? (tool ? Math.floor(tool.xpReward / tool.modules.length) : 25)
+        : 0;
 
       // Track best score
       const newBestScore = Math.max(quizScore, moduleProgress.bestScore || 0);
@@ -182,36 +185,42 @@ export const useProgress = () => {
   }, [progress.completedModules]);
 
   // Get tool completion percentage
-  const getToolCompletion = useCallback((toolId) => {
+  // Accepts toolId (looks up in static toolsData) or pass totalModules for API tools
+  const getToolCompletion = useCallback((toolId, totalModules) => {
     const tool = toolsData.find(t => t.id === toolId);
-    if (!tool) return 0;
-    
+    const moduleCount = tool ? tool.modules.length : totalModules;
+    if (!moduleCount) return 0;
+
     const toolProgress = progress.completedModules[toolId] || {};
     const completedCount = Object.values(toolProgress).filter(m => m.completed).length;
-    return Math.round((completedCount / tool.modules.length) * 100);
+    return Math.round((completedCount / moduleCount) * 100);
   }, [progress.completedModules]);
 
   // Get overall completion percentage
-  const getOverallCompletion = useCallback(() => {
-    const totalModules = getTotalModules();
+  // Accepts optional extraModuleCount for API tools not in static toolsData
+  const getOverallCompletion = useCallback((extraModuleCount = 0) => {
+    const totalModules = getTotalModules() + extraModuleCount;
+    if (totalModules === 0) return 0;
     let completedCount = 0;
-    
+
     Object.values(progress.completedModules).forEach(toolModules => {
       completedCount += Object.values(toolModules).filter(m => m.completed).length;
     });
-    
+
     return Math.round((completedCount / totalModules) * 100);
   }, [progress.completedModules]);
 
   // Check if module is unlocked (previous module completed or first module)
-  const isModuleUnlocked = useCallback((toolId, moduleId) => {
+  // Also accepts an optional modules array for API-loaded tools
+  const isModuleUnlocked = useCallback((toolId, moduleId, modules) => {
     const tool = toolsData.find(t => t.id === toolId);
-    if (!tool) return false;
-    
-    const moduleIndex = tool.modules.findIndex(m => m.id === moduleId);
-    if (moduleIndex === 0) return true; // First module always unlocked
-    
-    const prevModule = tool.modules[moduleIndex - 1];
+    const moduleList = tool ? tool.modules : modules;
+    if (!moduleList) return true; // If no module list available, default to unlocked
+
+    const moduleIndex = moduleList.findIndex(m => m.id === moduleId);
+    if (moduleIndex <= 0) return true; // First module always unlocked
+
+    const prevModule = moduleList[moduleIndex - 1];
     return isModuleCompleted(toolId, prevModule.id);
   }, [isModuleCompleted]);
 
