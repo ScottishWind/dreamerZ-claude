@@ -24,7 +24,7 @@ function App() {
           <AuthProvider>
             <ErrorBoundary>
               <Navbar />
-              <main className="flex-grow">
+              <main className="flex-grow pt-16">
                 <Routes>
                   <Route path="/" element={<Landing />} />
                   <Route path="/tools" element={<Tools />} />

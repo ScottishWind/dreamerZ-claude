@@ -83,7 +83,6 @@ webpackConfig.devServer = (devServerConfig) => {
     devServerConfig = setupDevServer(devServerConfig);
   }
 
-  // Configure proxy to bypass requests that shouldn't go to backend
   devServerConfig.proxy = {
     ...devServerConfig.proxy,
     bypass: function(req, res, proxyOptions) {

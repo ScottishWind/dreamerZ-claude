@@ -86,7 +86,7 @@ export const Landing = () => {
 
       {/* ━━━ HERO — Short, punchy, pricing-anchored ━━━ */}
       <section className="relative pt-28 pb-16 lg:pt-32 lg:pb-20 overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900" />
+        <div className="absolute inset-0 pointer-events-none bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900" />
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute top-10 left-1/4 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl" />
           <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-rose-500/10 rounded-full blur-3xl" />
