@@ -57,6 +57,14 @@ MAX_REQUEST_SIZE = int(os.environ.get("MAX_REQUEST_SIZE", 10_000_000))  # 10 MB
 CURRICULUM_JSON_PATH = ROOT_DIR / "curriculum_data.json"
 SITE_CONFIG_JSON_PATH = ROOT_DIR / "site_config_seed.json"
 
+# ── Admin ─────────────────────────────────────────────────
+# Hardcoded admin emails — these accounts automatically get admin privileges.
+ADMIN_EMAILS = [
+    e.strip().lower()
+    for e in os.environ.get("ADMIN_EMAILS", "purnendu.ju01@gmail.com").split(",")
+    if e.strip()
+]
+
 # ── Course Access ─────────────────────────────────────────
 # All courses are now free — no preview module limits.
 

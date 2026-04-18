@@ -36,9 +36,20 @@ class TokenResponse(BaseModel):
     username: str
     email: str
     created_at: str
+    is_admin: bool = False
 
 
 class UserInfoResponse(BaseModel):
     username: str
     email: str
     created_at: str
+    is_admin: bool = False
+
+
+class AdminUserResponse(BaseModel):
+    """Extended user info visible only to admins."""
+    username: str
+    email: str
+    created_at: str
+    last_login: Optional[str] = None
+    is_admin: bool = False

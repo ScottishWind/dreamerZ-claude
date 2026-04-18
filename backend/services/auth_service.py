@@ -9,7 +9,7 @@ from fastapi import Header, HTTPException
 from jwt import ExpiredSignatureError, InvalidTokenError
 from passlib.context import CryptContext
 
-from config import JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRATION_MINUTES
+from config import JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRATION_MINUTES, ADMIN_EMAILS
 from database import db
 from utils.sanitizers import sanitize_str
 
@@ -79,6 +79,19 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
     )
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+    return user
+
+
+def is_admin(user: dict) -> bool:
+    """Check if a user has admin privileges (based on hardcoded email list)."""
+    return user.get("email", "").lower() in ADMIN_EMAILS
+
+
+async def get_current_admin(authorization: Optional[str] = Header(None)):
+    """FastAPI dependency — require admin privileges."""
+    user = await get_current_user(authorization)
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin access required")
     return user
 
 

@@ -21,9 +21,10 @@ const saveAuth = (auth) => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
 };
 
-const buildUserProfile = ({ username, email, profile, lastLoginAt, createdAt }) => ({
+const buildUserProfile = ({ username, email, profile, lastLoginAt, createdAt, isAdmin }) => ({
   username,
   email,
+  isAdmin: isAdmin || false,
   firstName: profile?.firstName || '',
   lastName: profile?.lastName || '',
   phone: profile?.phone || '',
@@ -85,6 +86,7 @@ export const AuthProvider = ({ children }) => {
       user: buildUserProfile({
         username: result.username,
         email: result.email,
+        isAdmin: result.is_admin,
         profile: result.profile,
         createdAt: result.created_at,
         lastLoginAt: new Date().toISOString()

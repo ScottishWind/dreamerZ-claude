@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Menu, X, BookOpen, Users, User, BarChart3, LogOut } from 'lucide-react';
+import { Menu, X, BookOpen, Users, User, BarChart3, LogOut, Shield } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { UserMenu } from './UserMenu';
 
-const navLinks = [
+const baseNavLinks = [
   { path: '/learn', label: 'Learn', icon: BookOpen },
   { path: '/parents', label: 'For Parents', icon: Users },
 ];
@@ -14,6 +14,10 @@ export const Navbar = () => {
   const [isOpen, setIsOpen] = useState(false);
   const location = useLocation();
   const { user, isAuthenticated, logout } = useAuth();
+
+  const navLinks = user?.isAdmin
+    ? [...baseNavLinks, { path: '/admin', label: 'Admin', icon: Shield }]
+    : baseNavLinks;
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-lg border-b border-slate-100" aria-label="Main navigation">

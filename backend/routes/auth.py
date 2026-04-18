@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from config import USERNAME_REGEX, EMAIL_REGEX
+from config import USERNAME_REGEX, EMAIL_REGEX, ADMIN_EMAILS
 from database import db
 from models.user import UserCreate, UserLogin, TokenResponse, UserInfoResponse
 from services.auth_service import (
@@ -12,6 +12,7 @@ from services.auth_service import (
     create_access_token,
     get_current_user,
     get_password_hash,
+    is_admin,
 )
 from services.email_service import send_welcome_email
 from middleware.rate_limit import check_auth_rate_limit
@@ -67,7 +68,12 @@ async def register_user(user: UserCreate):
     except Exception:
         pass  # Email failure should never block registration
 
-    return {"username": username, "email": email, "created_at": created_at}
+    return {
+        "username": username,
+        "email": email,
+        "created_at": created_at,
+        "is_admin": email in ADMIN_EMAILS,
+    }
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -90,8 +96,9 @@ async def login_user(credentials: UserLogin, request: Request):
             status_code=401, detail="Invalid username, email, or password."
         )
 
+    admin = is_admin(user)
     token = create_access_token(
-        {"sub": user["username"], "email": user["email"]}
+        {"sub": user["username"], "email": user["email"], "is_admin": admin}
     )
     await db.users.update_one(
         {"_id": user["_id"]},
@@ -103,6 +110,7 @@ async def login_user(credentials: UserLogin, request: Request):
         "username": user["username"],
         "email": user["email"],
         "created_at": user["created_at"],
+        "is_admin": admin,
     }
 
 
@@ -112,4 +120,5 @@ async def get_profile(current_user: dict = Depends(get_current_user)):
         "username": current_user["username"],
         "email": current_user["email"],
         "created_at": current_user["created_at"],
+        "is_admin": is_admin(current_user),
     }

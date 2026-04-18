@@ -12,6 +12,7 @@ import { Parents } from "./pages/Parents";
 import { Account } from "./pages/Account";
 import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
+import { AdminPanel } from "./pages/AdminPanel";
 import { AuthProvider } from "./hooks/useAuth";
 
 /** Redirect /tools/:toolId → /learn/:toolId preserving the param */
@@ -38,6 +39,7 @@ function App() {
                   <Route path="/account" element={<Account />} />
                   <Route path="/login" element={<Login />} />
                   <Route path="/register" element={<Register />} />
+                  <Route path="/admin" element={<AdminPanel />} />
 
                   {/* Backward-compatible redirects */}
                   <Route path="/tools" element={<Navigate to="/learn" replace />} />

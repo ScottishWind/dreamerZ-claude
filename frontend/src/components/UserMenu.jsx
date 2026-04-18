@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronDown, User, BarChart3, LogOut } from 'lucide-react';
+import { ChevronDown, User, BarChart3, LogOut, Shield } from 'lucide-react';
 
 export const UserMenu = ({ user, onLogout }) => {
   const [open, setOpen] = useState(false);
@@ -54,15 +54,34 @@ export const UserMenu = ({ user, onLogout }) => {
         >
           {/* User info header */}
           <div className="px-4 py-3 border-b border-slate-100">
-            <p className="text-sm font-medium text-slate-800 truncate">
-              {user?.name || 'Dreamer'}
-            </p>
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-medium text-slate-800 truncate">
+                {user?.name || user?.username || 'Dreamer'}
+              </p>
+              {user?.isAdmin && (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">
+                  ADMIN
+                </span>
+              )}
+            </div>
             {user?.email && (
               <p className="text-xs text-slate-500 truncate">{user.email}</p>
             )}
           </div>
 
           {/* Menu items */}
+          {user?.isAdmin && (
+            <Link
+              to="/admin"
+              role="menuitem"
+              onClick={handleLinkClick}
+              className="flex items-center gap-3 px-4 py-2.5 text-sm text-amber-700 hover:bg-amber-50 transition-colors"
+            >
+              <Shield className="w-4 h-4 text-amber-500" />
+              Admin Panel
+            </Link>
+          )}
+
           <Link
             to="/learn"
             role="menuitem"
