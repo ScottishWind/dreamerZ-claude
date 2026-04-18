@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { BookOpen, FlaskConical, MessageCircle, ArrowLeft } from 'lucide-react';
 import { useProgress } from '../hooks/useProgress';
-import { useEnrollment } from '../hooks/useEnrollment';
 import { JourneyPlayer } from '../components/JourneyPlayer';
 import { PromptLabPanel } from '../components/PromptLabPanel';
 import { RoleplayChat } from '../components/RoleplayChat';
@@ -25,15 +24,6 @@ export const ToolJourney = () => {
     getModuleProgress,
     completeModule,
   } = useProgress();
-
-  const {
-    enrolled,
-    freeModuleCount,
-    previewVideoUrl,
-    pricing,
-    isModuleFree,
-    isLoading: enrollmentLoading,
-  } = useEnrollment(toolId);
 
   const isAITool = AI_TOOL_IDS.includes(toolId);
   const isEnglish = toolId === 'spoken-english-30day';
@@ -81,7 +71,7 @@ export const ToolJourney = () => {
     }
   }, [isLoading, tool, navigate]);
 
-  if (isLoading || enrollmentLoading) {
+  if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center py-24">
         <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-slate-600">
@@ -102,9 +92,6 @@ export const ToolJourney = () => {
   }
 
   if (!tool) return null;
-
-  // Use API video URL if available, otherwise fallback to hardcoded default
-  const videoUrl = previewVideoUrl || 'https://www.youtube.com/embed/zegMOOKy_6A';
 
   return (
     <div className="min-h-screen bg-slate-50 pt-20 pb-16">
@@ -157,11 +144,7 @@ export const ToolJourney = () => {
           isModuleUnlocked={isModuleUnlocked}
           getModuleProgress={getModuleProgress}
           completeModule={completeModule}
-          enrolled={enrolled}
-          isModuleFree={isModuleFree}
-          freeModuleCount={freeModuleCount}
-          pricing={pricing}
-          previewVideoUrl={videoUrl}
+          previewVideoUrl="https://www.youtube.com/embed/zegMOOKy_6A"
         />
       )}
 

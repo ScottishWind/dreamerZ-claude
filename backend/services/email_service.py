@@ -219,7 +219,7 @@ def build_welcome_email(username: str) -> str:
                           <p style="color:#6366f1; font-size:13px; margin:0;">5 tools &middot; 18+ modules &middot; ChatGPT, Claude, Gemini &amp; more</p>
                         </td>
                         <td width="60" align="right" valign="middle">
-                          <span style="background:#4f46e5; color:#fff; font-size:12px; font-weight:700; padding:4px 10px; border-radius:8px;">&#8377;199</span>
+                          <span style="background:#10b981; color:#fff; font-size:12px; font-weight:700; padding:4px 10px; border-radius:8px;">FREE</span>
                         </td>
                       </tr>
                     </table>
@@ -240,7 +240,7 @@ def build_welcome_email(username: str) -> str:
                           <p style="color:#f43f5e; font-size:13px; margin:0;">30-day journey &middot; AI roleplay &middot; Bengali meanings</p>
                         </td>
                         <td width="60" align="right" valign="middle">
-                          <span style="background:#f43f5e; color:#fff; font-size:12px; font-weight:700; padding:4px 10px; border-radius:8px;">&#8377;299</span>
+                          <span style="background:#10b981; color:#fff; font-size:12px; font-weight:700; padding:4px 10px; border-radius:8px;">FREE</span>
                         </td>
                       </tr>
                     </table>

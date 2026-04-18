@@ -58,10 +58,7 @@ CURRICULUM_JSON_PATH = ROOT_DIR / "curriculum_data.json"
 SITE_CONFIG_JSON_PATH = ROOT_DIR / "site_config_seed.json"
 
 # ── Course Access ─────────────────────────────────────────
-FREE_PREVIEW_MODULES = {
-    "ai-learning": 2,
-    "spoken-writing-english": 2,
-}
+# All courses are now free — no preview module limits.
 
 COURSE_PREVIEW_VIDEOS = {
     "chatgpt": "https://www.youtube.com/embed/zegMOOKy_6A",

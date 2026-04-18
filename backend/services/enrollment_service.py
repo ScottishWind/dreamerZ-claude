@@ -69,42 +69,18 @@ async def get_user_enrollments(username: str) -> list:
 
 
 async def get_course_access(tool_id: str, authorization: str = None) -> dict:
-    """Return access info for a tool: free module count, preview video, enrollment status."""
-    from config import TOOL_TO_PLAN, FREE_PREVIEW_MODULES, COURSE_PREVIEW_VIDEOS
+    """Return access info for a tool. All courses are now free — always return enrolled=True."""
+    from config import TOOL_TO_PLAN, COURSE_PREVIEW_VIDEOS
 
     tool_id = sanitize_id(tool_id, "tool_id")
     plan_id = TOOL_TO_PLAN.get(tool_id)
-
-    tool = await db.tools.find_one({"id": tool_id}, {"_id": 0, "category_id": 1})
-    category = tool.get("category_id", "ai-learning") if tool else "ai-learning"
-    free_count = FREE_PREVIEW_MODULES.get(category, 2)
     video_url = COURSE_PREVIEW_VIDEOS.get(tool_id, "")
-
-    enrolled = False
-    if authorization and authorization.startswith("Bearer "):
-        try:
-            token = authorization.split(" ", 1)[1]
-            payload = decode_access_token(token)
-            username = payload.get("sub", "")
-            if username and plan_id:
-                enrollment = await db.enrollments.find_one(
-                    {"username": username.lower(), "plan_id": plan_id, "is_active": True}
-                )
-                enrolled = enrollment is not None
-        except Exception:
-            pass  # anonymous access is fine
-
-    pricing = None
-    if plan_id:
-        pricing = await db.pricing_plans.find_one(
-            {"id": plan_id, "is_active": True}, {"_id": 0}
-        )
 
     return {
         "tool_id": tool_id,
         "plan_id": plan_id,
-        "enrolled": enrolled,
-        "free_module_count": free_count,
+        "enrolled": True,
+        "free_module_count": 999,
         "preview_video_url": video_url,
-        "pricing": pricing,
+        "pricing": None,
     }

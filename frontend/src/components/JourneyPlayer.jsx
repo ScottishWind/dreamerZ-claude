@@ -12,7 +12,6 @@ import RoleplayChat from './RoleplayChat';
 import { Button } from './ui/button';
 import { Progress } from './ui/progress';
 import { SafetyBanner } from './SafetyBanner';
-import { Paywall, PaywallBanner } from './Paywall';
 import { CoursePreviewVideo } from './CoursePreviewVideo';
 
 export const JourneyPlayer = ({
@@ -23,17 +22,11 @@ export const JourneyPlayer = ({
   getModuleProgress,
   completeModule,
   initialModuleId = null,
-  // Paywall props (optional — backwards compatible)
-  enrolled = true,
-  isModuleFree = () => true,
-  freeModuleCount = 999,
-  pricing = null,
   previewVideoUrl = '',
 }) => {
   const [activeModuleIndex, setActiveModuleIndex] = useState(0);
   const [showQuiz, setShowQuiz] = useState(false);
   const [showRoleplay, setShowRoleplay] = useState(false);
-  const [showPaywall, setShowPaywall] = useState(false);
   const [contentSection, setContentSection] = useState('learn'); // 'learn', 'example', 'activity', 'vocab', 'speak'
   const [isSpeaking, setIsSpeaking] = useState(false);
 
@@ -118,20 +111,16 @@ export const JourneyPlayer = ({
     }
   }, [tool.id, activeModule?.id, completeModule]);
 
-  // Navigate to next module — with paywall check
+  // Navigate to next module
   const goToNextModule = useCallback(() => {
     const nextIndex = activeModuleIndex + 1;
     if (nextIndex < modules.length) {
-      if (!enrolled && !isModuleFree(nextIndex)) {
-        setShowPaywall(true);
-        return;
-      }
       setActiveModuleIndex(nextIndex);
       setShowQuiz(false);
       setContentSection('learn');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
-  }, [activeModuleIndex, modules.length, enrolled, isModuleFree]);
+  }, [activeModuleIndex, modules.length]);
 
   // Navigate to previous module
   const goToPrevModule = useCallback(() => {
@@ -143,20 +132,15 @@ export const JourneyPlayer = ({
     }
   }, [activeModuleIndex]);
 
-  // Select specific module — enforces paywall on top of sequential unlock
+  // Select specific module
   const selectModule = useCallback((index) => {
     const module = modules[index];
-    // Paywall gate: if not enrolled and module is beyond free preview, show paywall
-    if (!enrolled && !isModuleFree(index)) {
-      setShowPaywall(true);
-      return;
-    }
     if (isModuleUnlocked(tool.id, module.id)) {
       setActiveModuleIndex(index);
       setShowQuiz(false);
       setContentSection('learn');
     }
-  }, [modules, tool.id, isModuleUnlocked, enrolled, isModuleFree]);
+  }, [modules, tool.id, isModuleUnlocked]);
 
   if (!activeModule) return null;
 
@@ -245,46 +229,32 @@ export const JourneyPlayer = ({
                     const unlocked = isModuleUnlocked(tool.id, module.id);
                     const isActive = index === activeModuleIndex;
                     const progress = getModuleProgress(tool.id, module.id);
-                    const isFree = enrolled || isModuleFree(index);
-                    const isPaywalled = !isFree;
-
-                    // Show paywall banner right after the last free module
-                    const showBannerAfter = !enrolled && index === freeModuleCount;
 
                     return (
                       <div key={module.id}>
-                        {showBannerAfter && (
-                          <PaywallBanner pricing={pricing} freeModuleCount={freeModuleCount} />
-                        )}
                         <motion.button
                           onClick={() => selectModule(index)}
-                          disabled={isPaywalled || !unlocked}
-                          whileHover={(isFree && unlocked) ? { x: 4 } : {}}
+                          disabled={!unlocked}
+                          whileHover={unlocked ? { x: 4 } : {}}
                           className={`w-full text-left p-3 rounded-xl mb-1 transition-all flex items-center gap-3 ${
                             isActive
                               ? 'bg-primary text-white shadow-lg shadow-primary/30'
-                              : isPaywalled
-                                ? 'opacity-40 cursor-not-allowed'
-                                : unlocked
-                                  ? 'hover:bg-slate-50'
-                                  : 'opacity-50 cursor-not-allowed'
+                              : unlocked
+                                ? 'hover:bg-slate-50'
+                                : 'opacity-50 cursor-not-allowed'
                           }`}
                           data-testid={`module-nav-${module.id}`}
                         >
                           <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-sm font-bold ${
-                            isPaywalled
-                              ? 'bg-amber-100 text-amber-500'
-                              : completed
-                                ? 'bg-emerald-500 text-white'
-                                : isActive
-                                  ? 'bg-white/20 text-white'
-                                  : unlocked
-                                    ? 'bg-slate-100 text-slate-600'
-                                    : 'bg-slate-100 text-slate-400'
+                            completed
+                              ? 'bg-emerald-500 text-white'
+                              : isActive
+                                ? 'bg-white/20 text-white'
+                                : unlocked
+                                  ? 'bg-slate-100 text-slate-600'
+                                  : 'bg-slate-100 text-slate-400'
                           }`}>
-                            {isPaywalled ? (
-                              <Lock className="w-3 h-3" />
-                            ) : completed ? (
+                            {completed ? (
                               <CheckCircle2 className="w-4 h-4" />
                             ) : !unlocked ? (
                               <Lock className="w-3 h-3" />
@@ -295,23 +265,18 @@ export const JourneyPlayer = ({
 
                           <div className="flex-grow min-w-0">
                             <div className={`font-medium text-sm truncate ${
-                              isActive ? 'text-white'
-                              : isPaywalled ? 'text-slate-400'
-                              : 'text-slate-700'
+                              isActive ? 'text-white' : 'text-slate-700'
                             }`}>
                               {module.title}
                             </div>
-                            {progress && !isPaywalled && (
+                            {progress && (
                               <div className={`text-xs ${isActive ? 'text-white/70' : 'text-slate-400'}`}>
                                 Best: {progress.quizScore}% • {progress.attempts} attempt{progress.attempts !== 1 ? 's' : ''}
                               </div>
                             )}
                           </div>
 
-                          {isPaywalled && (
-                            <span className="text-[10px] font-semibold text-amber-500 bg-amber-50 px-1.5 py-0.5 rounded-full">PRO</span>
-                          )}
-                          {!isPaywalled && module.level === 'advanced' && (
+                          {module.level === 'advanced' && (
                             <Sparkles className={`w-3 h-3 ${isActive ? 'text-amber-300' : 'text-amber-500'}`} />
                           )}
                         </motion.button>
@@ -767,18 +732,6 @@ export const JourneyPlayer = ({
         />
       )}
 
-      {/* Paywall Modal */}
-      <AnimatePresence>
-        {showPaywall && pricing && (
-          <Paywall
-            pricing={pricing}
-            moduleName={activeModule?.title || ''}
-            freeModuleCount={freeModuleCount}
-            totalModules={modules.length}
-            onClose={() => setShowPaywall(false)}
-          />
-        )}
-      </AnimatePresence>
     </div>
   );
 };

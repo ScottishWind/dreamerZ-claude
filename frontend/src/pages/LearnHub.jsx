@@ -7,10 +7,9 @@ import { useProgress } from '../hooks/useProgress';
 import { useCurriculum } from '../hooks/useCurriculum';
 import { ProgressDashboard } from '../components/ProgressDashboard';
 import { StreakBadge } from '../components/StreakBadge';
-import { Trophy, Zap, Target, BarChart3, Grid3X3, BookOpen, Mic, ArrowRight, Calendar, Languages, MessageCircle, Brain, Sparkles, Lightbulb, CreditCard, Search, CheckCircle2, Circle, ChevronRight } from 'lucide-react';
+import { Trophy, Zap, Target, BarChart3, Grid3X3, BookOpen, Mic, ArrowRight, Calendar, Languages, MessageCircle, Brain, Sparkles, Lightbulb, Search, CheckCircle2, Circle, ChevronRight } from 'lucide-react';
 import { Progress } from '../components/ui/progress';
 import { Button } from '../components/ui/button';
-import { usePricing } from '../hooks/useSiteConfig';
 
 export const LearnHub = () => {
   const {
@@ -23,11 +22,6 @@ export const LearnHub = () => {
     isModuleCompleted
   } = useProgress();
   const { tools: apiTools } = useCurriculum();
-  const { getPlan } = usePricing();
-  const aiPlan = getPlan('ai-learning');
-  const englishPlan = getPlan('spoken-english');
-  const aiPrice = aiPlan?.price ?? 199;
-  const englishPrice = englishPlan?.price ?? 299;
   const streakInfo = getStreakInfo();
   const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'progress'
   const [activeCategory, setActiveCategory] = useState('all'); // 'all', 'ai-learning', 'spoken-writing-english'
@@ -243,7 +237,7 @@ export const LearnHub = () => {
                             <div className="flex items-center gap-2 mb-1">
                               <span className="bg-white/20 text-white text-xs font-bold px-2 py-0.5 rounded-full">5 TOOLS</span>
                               <span className="bg-white/20 text-white text-xs font-semibold px-2 py-0.5 rounded-full">{aiTotalModules} Modules</span>
-                              <span className="bg-amber-400 text-slate-900 text-xs font-bold px-2 py-0.5 rounded-full">&#8377;{aiPrice}</span>
+                              <span className="bg-emerald-400 text-slate-900 text-xs font-bold px-2 py-0.5 rounded-full">FREE</span>
                             </div>
                             <h3 className="text-xl font-bold text-white mb-1">AI Learning — ChatGPT, Claude, Gemini & More</h3>
                             <p className="text-indigo-100 text-sm max-w-xl">
@@ -288,15 +282,9 @@ export const LearnHub = () => {
                               </>
                             )}
                           </div>
-                          <div className="flex flex-col gap-2">
-                            <div className="bg-white text-indigo-600 rounded-xl px-5 py-3 font-semibold group-hover:bg-indigo-50 transition-colors flex items-center gap-2">
-                              {aiCompletion > 0 ? 'Continue' : 'Start Now'}
-                              <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                            </div>
-                            <a href="#payment-ai" onClick={(e) => e.stopPropagation()} className="bg-amber-400 text-slate-900 rounded-xl px-5 py-2.5 font-semibold hover:bg-amber-300 transition-colors flex items-center justify-center gap-2 text-sm">
-                              <CreditCard className="w-3.5 h-3.5" />
-                              Enroll &#8377;{aiPrice}
-                            </a>
+                          <div className="bg-white text-indigo-600 rounded-xl px-5 py-3 font-semibold group-hover:bg-indigo-50 transition-colors flex items-center gap-2">
+                            {aiCompletion > 0 ? 'Continue' : 'Start Now'}
+                            <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                           </div>
                         </div>
                       </div>
@@ -323,7 +311,7 @@ export const LearnHub = () => {
                             <div className="flex items-center gap-2 mb-1">
                               <span className="bg-white/20 text-white text-xs font-bold px-2 py-0.5 rounded-full">NEW</span>
                               <span className="bg-white/20 text-white text-xs font-semibold px-2 py-0.5 rounded-full">30 Days</span>
-                              <span className="bg-amber-400 text-slate-900 text-xs font-bold px-2 py-0.5 rounded-full">&#8377;{englishPrice}</span>
+                              <span className="bg-emerald-400 text-slate-900 text-xs font-bold px-2 py-0.5 rounded-full">FREE</span>
                             </div>
                             <h3 className="text-xl font-bold text-white mb-1">Spoken English for Bengali Teens</h3>
                             <p className="text-rose-100 text-sm max-w-xl">
@@ -368,15 +356,9 @@ export const LearnHub = () => {
                               </>
                             )}
                           </div>
-                          <div className="flex flex-col gap-2">
-                            <div className="bg-white text-rose-600 rounded-xl px-5 py-3 font-semibold group-hover:bg-rose-50 transition-colors flex items-center gap-2">
-                              {spokenCompletion > 0 ? 'Continue' : 'Start Now'}
-                              <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                            </div>
-                            <a href="#payment-english" onClick={(e) => e.stopPropagation()} className="bg-amber-400 text-slate-900 rounded-xl px-5 py-2.5 font-semibold hover:bg-amber-300 transition-colors flex items-center justify-center gap-2 text-sm">
-                              <CreditCard className="w-3.5 h-3.5" />
-                              Enroll &#8377;{englishPrice}
-                            </a>
+                          <div className="bg-white text-rose-600 rounded-xl px-5 py-3 font-semibold group-hover:bg-rose-50 transition-colors flex items-center gap-2">
+                            {spokenCompletion > 0 ? 'Continue' : 'Start Now'}
+                            <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                           </div>
                         </div>
                       </div>
