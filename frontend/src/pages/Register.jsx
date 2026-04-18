@@ -29,6 +29,19 @@ export const Register = () => {
       return;
     }
 
+    if (!username.match(/^[a-zA-Z0-9_]{3,30}$/)) {
+      setError('Username must be 3-30 characters (letters, numbers, underscore only).');
+      return;
+    }
+    if (!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+    if (!/[A-Z]/.test(password) || !/[0-9]/.test(password)) {
+      setError('Password must contain at least one uppercase letter and one number.');
+      return;
+    }
+
     setLoading(true);
     try {
       await register({ username, email, password });

@@ -33,6 +33,15 @@ const buildUserProfile = ({ username, email, profile, lastLoginAt, createdAt }) 
   createdAt: createdAt || new Date().toISOString()
 });
 
+const isTokenExpired = (token) => {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return payload.exp * 1000 < Date.now();
+  } catch {
+    return true;
+  }
+};
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(null);
@@ -42,8 +51,13 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const stored = getStoredAuth();
     if (stored?.token && stored?.user) {
-      setUser(buildUserProfile(stored.user));
-      setToken(stored.token);
+      if (isTokenExpired(stored.token)) {
+        // Token expired — clear stored auth
+        localStorage.removeItem(STORAGE_KEY);
+      } else {
+        setUser(buildUserProfile(stored.user));
+        setToken(stored.token);
+      }
     }
     setIsLoaded(true);
   }, []);

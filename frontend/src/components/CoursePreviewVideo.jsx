@@ -7,6 +7,19 @@ import { Play } from 'lucide-react';
 export const CoursePreviewVideo = ({ videoUrl, title = 'Course Preview' }) => {
   if (!videoUrl) return null;
 
+  // SECURITY: Whitelist allowed video hosts
+  const ALLOWED_VIDEO_HOSTS = ['youtube.com', 'youtu.be', 'www.youtube.com', 'vimeo.com'];
+  try {
+    const parsed = new URL(videoUrl.includes('//') ? videoUrl : `https://${videoUrl}`);
+    if (!ALLOWED_VIDEO_HOSTS.some(host => parsed.hostname.includes(host))) {
+      console.warn('Blocked non-whitelisted video URL:', videoUrl);
+      return null;
+    }
+  } catch {
+    console.warn('Invalid video URL:', videoUrl);
+    return null;
+  }
+
   // Ensure embed format
   const embedUrl = videoUrl.includes('/embed/')
     ? videoUrl

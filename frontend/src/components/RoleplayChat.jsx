@@ -2,8 +2,8 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Send, MessageCircle, Mic, User, Bot, ChevronDown } from 'lucide-react';
 import { Button } from './ui/button';
-
-const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
+import API_BASE from '../config/api';
+import { MAX_CHAT_MESSAGES, ROLEPLAY_HISTORY_LIMIT } from '../config/constants';
 
 const ROLES = [
   { id: 'friend', label: 'Friend (Riya)', emoji: '👋', description: 'Casual Bengali teen chat' },
@@ -46,7 +46,10 @@ export const RoleplayChat = ({ toolId, moduleId, moduleName, speakingTask, onClo
     if (!input.trim() || isLoading) return;
 
     const userMsg = { from: 'user', text: input.trim() };
-    setMessages(prev => [...prev, userMsg]);
+    setMessages(prev => {
+      const updated = [...prev, userMsg];
+      return updated.length > MAX_CHAT_MESSAGES ? updated.slice(-MAX_CHAT_MESSAGES) : updated;
+    });
     setInput('');
     setIsLoading(true);
 
@@ -59,18 +62,27 @@ export const RoleplayChat = ({ toolId, moduleId, moduleName, speakingTask, onClo
           module_id: moduleId,
           user_message: userMsg.text,
           role: selectedRole,
-          history: messages.slice(-6).map(m => ({ from: m.from, text: m.text }))
+          history: messages.slice(-ROLEPLAY_HISTORY_LIMIT).map(m => ({ from: m.from, text: m.text }))
         })
       });
 
       if (response.ok) {
         const data = await response.json();
-        setMessages(prev => [...prev, { from: 'ai', text: data.response }]);
+        setMessages(prev => {
+          const updated = [...prev, { from: 'ai', text: data.response }];
+          return updated.length > MAX_CHAT_MESSAGES ? updated.slice(-MAX_CHAT_MESSAGES) : updated;
+        });
       } else {
-        setMessages(prev => [...prev, { from: 'ai', text: "Oops — I couldn't process that. Try saying it differently! 😊" }]);
+        setMessages(prev => {
+          const updated = [...prev, { from: 'ai', text: "Oops — I couldn't process that. Try saying it differently! 😊" }];
+          return updated.length > MAX_CHAT_MESSAGES ? updated.slice(-MAX_CHAT_MESSAGES) : updated;
+        });
       }
     } catch (err) {
-      setMessages(prev => [...prev, { from: 'ai', text: "Connection issue — but keep practising! Try again in a moment." }]);
+      setMessages(prev => {
+        const updated = [...prev, { from: 'ai', text: "Connection issue — but keep practising! Try again in a moment." }];
+        return updated.length > MAX_CHAT_MESSAGES ? updated.slice(-MAX_CHAT_MESSAGES) : updated;
+      });
     } finally {
       setIsLoading(false);
       inputRef.current?.focus();

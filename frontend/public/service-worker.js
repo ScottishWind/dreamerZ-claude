@@ -26,6 +26,11 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // SECURITY FIX: Never cache API responses (may contain authenticated data)
+  if (event.request.url.includes('/api/')) {
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       const networkFetch = fetch(event.request)

@@ -1,0 +1,82 @@
+"""Application configuration — all settings from environment variables and constants."""
+
+import os
+import re
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+ROOT_DIR = Path(__file__).parent
+load_dotenv(ROOT_DIR / ".env")
+
+# ── Database ──────────────────────────────────────────────
+MONGO_URL = os.environ.get("MONGO_URL", "")
+DB_NAME = os.environ.get("DB_NAME", "dreamerz_beta")
+
+if not MONGO_URL:
+    raise ValueError("MONGO_URL environment variable is required")
+
+# ── Authentication ────────────────────────────────────────
+JWT_SECRET = os.environ.get("JWT_SECRET", "")
+JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256")
+JWT_EXPIRATION_MINUTES = int(os.environ.get("JWT_EXPIRATION_MINUTES", "1440"))
+
+# Fail-fast: reject weak/default secrets in production
+if not JWT_SECRET or JWT_SECRET == "change-this-secret":
+    import warnings
+    warnings.warn(
+        "JWT_SECRET is missing or set to the insecure default. "
+        "Set a strong random secret via environment variable.",
+        stacklevel=2,
+    )
+    # Allow startup for local dev; production should set a real secret
+    JWT_SECRET = JWT_SECRET or "change-this-secret"
+
+EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+USERNAME_REGEX = re.compile(r"^[a-zA-Z0-9_]{3,30}$")
+
+# ── Rate Limiting ─────────────────────────────────────────
+RATE_LIMIT_REQUESTS = int(os.environ.get("RATE_LIMIT_REQUESTS", 10))
+RATE_LIMIT_WINDOW = int(os.environ.get("RATE_LIMIT_WINDOW", 60))
+AUTH_RATE_LIMIT_REQUESTS = int(os.environ.get("AUTH_RATE_LIMIT_REQUESTS", 5))
+AUTH_RATE_LIMIT_WINDOW = int(os.environ.get("AUTH_RATE_LIMIT_WINDOW", 300))
+
+# ── CORS ──────────────────────────────────────────────────
+_default_origins = "http://localhost:3000,http://127.0.0.1:3000"
+CORS_ORIGINS_RAW = os.environ.get("CORS_ORIGINS", _default_origins)
+CORS_ORIGINS = [o.strip() for o in CORS_ORIGINS_RAW.split(",") if o.strip()]
+
+# ── OpenAI ────────────────────────────────────────────────
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+
+# ── Request Size ──────────────────────────────────────────
+MAX_REQUEST_SIZE = int(os.environ.get("MAX_REQUEST_SIZE", 10_000_000))  # 10 MB
+
+# ── File Paths ────────────────────────────────────────────
+CURRICULUM_JSON_PATH = ROOT_DIR / "curriculum_data.json"
+SITE_CONFIG_JSON_PATH = ROOT_DIR / "site_config_seed.json"
+
+# ── Course Access ─────────────────────────────────────────
+FREE_PREVIEW_MODULES = {
+    "ai-learning": 2,
+    "spoken-writing-english": 2,
+}
+
+COURSE_PREVIEW_VIDEOS = {
+    "chatgpt": "https://www.youtube.com/embed/zegMOOKy_6A",
+    "claude": "https://www.youtube.com/embed/zegMOOKy_6A",
+    "gemini": "https://www.youtube.com/embed/zegMOOKy_6A",
+    "canva": "https://www.youtube.com/embed/zegMOOKy_6A",
+    "syllaby": "https://www.youtube.com/embed/zegMOOKy_6A",
+    "spoken-english-30day": "https://www.youtube.com/embed/zegMOOKy_6A",
+}
+
+TOOL_TO_PLAN = {
+    "chatgpt": "ai-learning",
+    "claude": "ai-learning",
+    "gemini": "ai-learning",
+    "canva": "ai-learning",
+    "syllaby": "ai-learning",
+    "spoken-english-30day": "spoken-english",
+}

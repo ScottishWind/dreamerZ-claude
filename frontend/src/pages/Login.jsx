@@ -19,10 +19,11 @@ export const Login = () => {
     setLoading(true);
 
     try {
+      const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(usernameOrEmail);
       const payload = {
         password,
-        username: usernameOrEmail.includes('@') ? undefined : usernameOrEmail,
-        email: usernameOrEmail.includes('@') ? usernameOrEmail : undefined,
+        username: isEmail ? undefined : usernameOrEmail,
+        email: isEmail ? usernameOrEmail : undefined,
       };
       await login(payload);
       navigate('/profile');

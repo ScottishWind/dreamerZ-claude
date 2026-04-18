@@ -122,7 +122,7 @@ export const Quiz = ({ questions, onComplete, moduleName, previousAttempts = 0, 
 
   // Render options for MCQ
   const renderMCQOptions = () => (
-    <div className="space-y-3">
+    <div className="space-y-3" role="radiogroup" aria-label="Answer options">
       {question.options.map((option, index) => {
         const isSelected = selectedAnswer === index;
         const isCorrect = index === question.correctAnswer;
@@ -321,7 +321,7 @@ export const Quiz = ({ questions, onComplete, moduleName, previousAttempts = 0, 
       <motion.div
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="text-center py-8"
+        className="text-center py-8" aria-live="polite"
       >
         <motion.div 
           className={`w-24 h-24 mx-auto mb-6 rounded-3xl flex items-center justify-center ${

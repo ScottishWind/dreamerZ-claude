@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ChevronLeft, ChevronRight, Lock, CheckCircle2,
@@ -105,7 +105,10 @@ export const JourneyPlayer = ({
 
   const moduleProgress = getModuleProgress(tool.id, activeModule?.id);
   const isCurrentModuleCompleted = isModuleCompleted(tool.id, activeModule?.id);
-  const completedCount = modules.filter(m => isModuleCompleted(tool.id, m.id)).length;
+  const completedCount = useMemo(
+    () => modules.filter(m => isModuleCompleted(tool.id, m.id)).length,
+    [modules, tool.id, isModuleCompleted]
+  );
   const progressPercent = Math.round((completedCount / modules.length) * 100);
 
   // Handle quiz completion

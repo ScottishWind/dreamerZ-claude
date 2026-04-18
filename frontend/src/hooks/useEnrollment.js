@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-
-const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
+import API_BASE from '../config/api';
 
 /**
  * Hook to fetch course access info for a specific tool.
@@ -15,7 +14,8 @@ export const useEnrollment = (toolId) => {
     if (!toolId) return;
     setIsLoading(true);
     try {
-      const token = localStorage.getItem('dreamerz_token');
+      const stored = localStorage.getItem('dreamerz_beta_auth_v1');
+      const token = stored ? JSON.parse(stored)?.token : null;
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
       const res = await fetch(`${API_BASE}/api/course-access/${toolId}`, { headers });
       if (!res.ok) throw new Error('Failed to load access info');

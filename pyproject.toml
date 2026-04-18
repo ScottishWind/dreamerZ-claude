@@ -1,0 +1,28 @@
+[project]
+name = "dreamerz-backend"
+version = "1.0.0"
+description = "DreamerZ AI & English Learning Platform — Backend API"
+requires-python = ">=3.11"
+
+# ── Black ────────────────────────────────────────────────
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+# ── isort ────────────────────────────────────────────────
+[tool.isort]
+profile = "black"
+line_length = 100
+known_first_party = ["config", "database", "models", "routes", "services", "middleware", "utils"]
+
+# ── flake8 (via flake8-pyproject) ────────────────────────
+[tool.flake8]
+max-line-length = 100
+extend-ignore = ["E203", "W503"]
+exclude = [".git", "__pycache__", ".venv", "venv", "build", "dist"]
+
+# ── pytest ───────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests", "backend/tests"]
+asyncio_mode = "auto"
+filterwarnings = ["ignore::DeprecationWarning"]
