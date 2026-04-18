@@ -192,7 +192,7 @@ def build_welcome_email(username: str) -> str:
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td align="center" style="padding:4px 0 28px;">
-                    <a href="https://dreamerz.onrender.com/learn" target="_blank"
+                    <a href="https://dreamerz-frontend.onrender.com/learn" target="_blank"
                        style="display:inline-block; background:linear-gradient(135deg, #4f46e5, #7c3aed); color:#ffffff; text-decoration:none; font-weight:700; font-size:16px; padding:14px 36px; border-radius:14px; letter-spacing:0.3px;">
                       Start Learning Now &rarr;
                     </a>
@@ -263,11 +263,11 @@ def build_welcome_email(username: str) -> str:
           <tr>
             <td style="background-color:#1e293b; border-radius:0 0 20px 20px; padding:28px 40px; text-align:center;">
               <p style="color:#94a3b8; font-size:13px; margin:0 0 8px;">
-                <a href="https://dreamerz.onrender.com/learn" style="color:#818cf8; text-decoration:none; font-weight:600;">Courses</a>
+                <a href="https://dreamerz-frontend.onrender.com/learn" style="color:#818cf8; text-decoration:none; font-weight:600;">Courses</a>
                 &nbsp;&middot;&nbsp;
-                <a href="https://dreamerz.onrender.com/parents" style="color:#818cf8; text-decoration:none; font-weight:600;">For Parents</a>
+                <a href="https://dreamerz-frontend.onrender.com/parents" style="color:#818cf8; text-decoration:none; font-weight:600;">For Parents</a>
                 &nbsp;&middot;&nbsp;
-                <a href="https://dreamerz.onrender.com/account" style="color:#818cf8; text-decoration:none; font-weight:600;">My Account</a>
+                <a href="https://dreamerz-frontend.onrender.com/account" style="color:#818cf8; text-decoration:none; font-weight:600;">My Account</a>
               </p>
               <p style="color:#64748b; font-size:12px; margin:0;">
                 &copy; 2026 DreamerZ. Made with ❤️ for teen learners in India.
