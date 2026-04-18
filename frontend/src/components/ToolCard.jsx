@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { ChevronRight, Zap, BookOpen } from 'lucide-react';
 import { Progress } from './ui/progress';
 
-export const ToolCard = ({ tool, index, completion = 0 }) => {
+export const ToolCard = ({ tool, index, completion = 0, linkPrefix = '/learn' }) => {
   const difficultyClass = {
     'Beginner': 'badge-beginner',
     'Intermediate': 'badge-intermediate',
@@ -21,7 +21,7 @@ export const ToolCard = ({ tool, index, completion = 0 }) => {
       className="group"
     >
       <Link 
-        to={`/tools/${tool.id}`}
+        to={`${linkPrefix}/${tool.id}`}
         data-testid={`tool-card-${tool.id}`}
         className="block h-full"
       >

@@ -189,7 +189,7 @@ export const JourneyPlayer = ({
             {/* Back & Tool Info */}
             <div className="flex items-center gap-4">
               <Link 
-                to="/tools" 
+                to="/learn" 
                 className="p-2 hover:bg-slate-100 rounded-xl transition-colors"
                 data-testid="journey-back-btn"
               >

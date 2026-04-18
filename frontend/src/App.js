@@ -1,21 +1,24 @@
 import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router-dom";
 import { HelmetProvider } from "react-helmet-async";
 import { Toaster } from "./components/ui/sonner";
 import { Navbar } from "./components/Navbar";
 import { Footer } from "./components/Footer";
 import { ErrorBoundary, NotFound } from "./components/ErrorStates";
 import { Landing } from "./pages/Landing";
-import { Tools } from "./pages/Tools";
+import { LearnHub } from "./pages/LearnHub";
 import { ToolJourney } from "./pages/ToolJourney";
-import { PromptLab } from "./pages/PromptLab";
-import { Curriculum } from "./pages/Curriculum";
 import { Parents } from "./pages/Parents";
-import { Profile } from "./pages/Profile";
-import { SettingsPage } from "./pages/Settings";
+import { Account } from "./pages/Account";
 import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
 import { AuthProvider } from "./hooks/useAuth";
+
+/** Redirect /tools/:toolId → /learn/:toolId preserving the param */
+const ToolRedirect = () => {
+  const { toolId } = useParams();
+  return <Navigate to={`/learn/${toolId}`} replace />;
+};
 
 function App() {
   return (
@@ -27,16 +30,23 @@ function App() {
               <Navbar />
               <main className="flex-grow pt-16">
                 <Routes>
+                  {/* Primary routes */}
                   <Route path="/" element={<Landing />} />
-                  <Route path="/tools" element={<Tools />} />
-                  <Route path="/tools/:toolId" element={<ToolJourney />} />
-                  <Route path="/prompt-lab" element={<PromptLab />} />
-                  <Route path="/curriculum" element={<Curriculum />} />
+                  <Route path="/learn" element={<LearnHub />} />
+                  <Route path="/learn/:toolId" element={<ToolJourney />} />
                   <Route path="/parents" element={<Parents />} />
-                  <Route path="/profile" element={<Profile />} />
-                  <Route path="/settings" element={<SettingsPage />} />
+                  <Route path="/account" element={<Account />} />
                   <Route path="/login" element={<Login />} />
                   <Route path="/register" element={<Register />} />
+
+                  {/* Backward-compatible redirects */}
+                  <Route path="/tools" element={<Navigate to="/learn" replace />} />
+                  <Route path="/tools/:toolId" element={<ToolRedirect />} />
+                  <Route path="/curriculum" element={<Navigate to="/learn" replace />} />
+                  <Route path="/prompt-lab" element={<Navigate to="/learn" replace />} />
+                  <Route path="/profile" element={<Navigate to="/account" replace />} />
+                  <Route path="/settings" element={<Navigate to="/account" replace />} />
+
                   <Route path="*" element={<NotFound />} />
                 </Routes>
               </main>

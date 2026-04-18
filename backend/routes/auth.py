@@ -13,6 +13,7 @@ from services.auth_service import (
     get_current_user,
     get_password_hash,
 )
+from services.email_service import send_welcome_email
 from middleware.rate_limit import check_auth_rate_limit
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -59,6 +60,12 @@ async def register_user(user: UserCreate):
         "last_login": None,
     }
     await db.users.insert_one(user_doc)
+
+    # Send welcome email (fire-and-forget — don't block registration on email failure)
+    try:
+        send_welcome_email(to_email=email, username=username)
+    except Exception:
+        pass  # Email failure should never block registration
 
     return {"username": username, "email": email, "created_at": created_at}
 

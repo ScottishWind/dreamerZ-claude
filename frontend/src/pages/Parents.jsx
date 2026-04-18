@@ -358,16 +358,16 @@ export const Parents = () => {
             Sit with your teen and try the Prompt Lab. It's a great way to start a conversation about AI and learn together!
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link to="/prompt-lab">
+            <Link to="/learn">
               <Button className="bg-primary hover:bg-primary/90 text-white px-6 py-3 rounded-xl font-semibold shadow-lg shadow-primary/30">
-                Try Prompt Lab
+                Explore Courses
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             </Link>
-            <Link to="/tools">
+            <Link to="/learn">
               <Button variant="outline" className="border-slate-300 text-slate-700 hover:bg-slate-100 px-6 py-3 rounded-xl font-semibold">
                 <BookOpen className="w-4 h-4 mr-2" />
-                View All Courses
+                See Our Courses
               </Button>
             </Link>
           </div>

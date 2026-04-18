@@ -45,7 +45,7 @@ export const Register = () => {
     setLoading(true);
     try {
       await register({ username, email, password });
-      navigate('/profile');
+      navigate('/learn');
     } catch (err) {
       setError(err.message || 'Unable to create account.');
     } finally {

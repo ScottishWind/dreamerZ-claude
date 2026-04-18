@@ -31,7 +31,7 @@ const FALLBACK_PLANS = [
     highlights: ['ChatGPT, Claude, Gemini, Canva, Syllaby', '18+ interactive modules', 'Prompt engineering mastery', 'Quizzes & XP tracking', 'Lifetime access'],
     cta: 'Enroll Now — ₹199',
     link: '#payment-ai',
-    coursePath: '/tools'
+    coursePath: '/learn'
   },
   {
     id: 'spoken-english',
@@ -49,7 +49,7 @@ const FALLBACK_PLANS = [
     highlights: ['30 structured daily lessons', 'AI roleplay with 5 characters', 'Vocab with Bengali meanings', 'Daily dialogues & speaking tasks', 'Weekly tests & progress tracking'],
     cta: 'Enroll Now — ₹299',
     link: '#payment-english',
-    coursePath: '/tools/spoken-english-30day'
+    coursePath: '/learn/spoken-english-30day'
   }
 ];
 
@@ -120,7 +120,7 @@ export const Landing = () => {
                     View Pricing & Enroll
                   </Button>
                 </a>
-                <Link to="/tools">
+                <Link to="/learn">
                   <Button className="bg-white/10 backdrop-blur text-white border border-white/20 font-medium px-8 py-3.5 rounded-full hover:bg-white/20 transition-all text-base w-full sm:w-auto">
                     <Play className="w-4 h-4 mr-2" />
                     Preview Free
@@ -513,8 +513,7 @@ export const Landing = () => {
               <span className="font-semibold text-slate-900">DreamerZ<span className="text-primary">_Beta</span></span>
             </div>
             <div className="flex items-center gap-4 text-sm text-slate-500">
-              <Link to="/tools" className="hover:text-slate-700 transition-colors">Courses</Link>
-              <Link to="/curriculum" className="hover:text-slate-700 transition-colors">Curriculum</Link>
+              <Link to="/learn" className="hover:text-slate-700 transition-colors">Courses</Link>
               <Link to="/parents" className="hover:text-slate-700 transition-colors">For Parents</Link>
               <a href="#pricing" className="hover:text-slate-700 transition-colors">Pricing</a>
             </div>

@@ -112,7 +112,7 @@ export const AuthProvider = ({ children }) => {
     }
 
     await login({ username, email, password });
-    navigate('/profile');
+    navigate('/learn');
     return result;
   }, [login, navigate]);
 

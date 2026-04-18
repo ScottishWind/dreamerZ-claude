@@ -155,7 +155,7 @@ export const ProgressDashboard = ({
                 transition={{ delay: index * 0.05 }}
                 className="p-4 hover:bg-slate-50 transition-colors"
               >
-                <Link to={`/tools/${tool.id}`} className="block" data-testid={`progress-tool-${tool.id}`}>
+                <Link to={`/learn/${tool.id}`} className="block" data-testid={`progress-tool-${tool.id}`}>
                   <div className="flex items-center gap-4">
                     {/* Tool Icon */}
                     <div

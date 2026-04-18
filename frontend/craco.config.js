@@ -82,6 +82,14 @@ if (config.enableVisualEdits && babelMetadataPlugin) {
 }
 
 webpackConfig.devServer = (devServerConfig) => {
+  // Fix allowedHosts — CRA sometimes injects an empty string
+  if (Array.isArray(devServerConfig.allowedHosts)) {
+    devServerConfig.allowedHosts = devServerConfig.allowedHosts.filter(h => h && h.length > 0);
+    if (devServerConfig.allowedHosts.length === 0) {
+      devServerConfig.allowedHosts = 'all';
+    }
+  }
+
   // Apply visual edits dev server setup only if enabled
   if (config.enableVisualEdits && setupDevServer) {
     devServerConfig = setupDevServer(devServerConfig);

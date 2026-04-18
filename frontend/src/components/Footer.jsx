@@ -27,18 +27,8 @@ export const Footer = () => {
             <h3 className="font-semibold text-white mb-4">Learn</h3>
             <ul className="space-y-2 text-sm">
               <li>
-                <Link to="/tools" className="hover:text-white transition-colors">
-                  AI Tools
-                </Link>
-              </li>
-              <li>
-                <Link to="/prompt-lab" className="hover:text-white transition-colors">
-                  Prompt Lab
-                </Link>
-              </li>
-              <li>
-                <Link to="/curriculum" className="hover:text-white transition-colors">
-                  Full Curriculum
+                <Link to="/learn" className="hover:text-white transition-colors">
+                  Explore Courses
                 </Link>
               </li>
             </ul>

@@ -95,7 +95,7 @@ export const NotFound = () => (
       </p>
       
       <div className="flex flex-col sm:flex-row gap-3 justify-center">
-        <Link to="/tools">
+        <Link to="/learn">
           <Button className="bg-primary hover:bg-primary/90 text-white">
             Explore AI Tools
           </Button>

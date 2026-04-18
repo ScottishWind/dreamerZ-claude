@@ -26,7 +26,7 @@ export const Login = () => {
         email: isEmail ? usernameOrEmail : undefined,
       };
       await login(payload);
-      navigate('/profile');
+      navigate('/learn');
     } catch (err) {
       setError(err.message || 'Unable to login. Please check your credentials.');
     } finally {
