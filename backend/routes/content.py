@@ -1,10 +1,13 @@
-"""Content routes — tools, modules, categories."""
+"""Content routes — tools, modules, categories, media serve."""
 
+import io
 from typing import Optional
 
-from fastapi import APIRouter
+from bson import ObjectId
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 
-from database import db, CATEGORIES_DATA
+from database import db, fs_bucket, CATEGORIES_DATA
 from utils.sanitizers import sanitize_id
 
 router = APIRouter(prefix="/content", tags=["content"])
@@ -92,3 +95,26 @@ async def get_content_tools_by_category(category_id: str):
         ]
 
     return tools
+
+
+# ── Public media serve (no auth required) ────────────────
+@router.get("/media/{asset_id}")
+async def serve_media(asset_id: str):
+    """Serve a media file publicly (for images/docs in lesson content)."""
+    asset_id = sanitize_id(asset_id, "asset_id")
+    asset = await db.media_assets.find_one({"id": asset_id})
+    if not asset:
+        raise HTTPException(status_code=404, detail="Media not found")
+
+    gridfs_id = ObjectId(asset["gridfs_id"])
+    grid_out = await fs_bucket.open_download_stream(gridfs_id)
+    file_data = await grid_out.read()
+
+    return StreamingResponse(
+        io.BytesIO(file_data),
+        media_type=asset["mime_type"],
+        headers={
+            "Content-Disposition": f'inline; filename="{asset["original_filename"]}"',
+            "Cache-Control": "public, max-age=86400",
+        },
+    )

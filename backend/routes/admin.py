@@ -1,15 +1,19 @@
-"""Admin routes — user management and content management (admin-only)."""
+"""Admin routes — user management, content management, media uploads (admin-only)."""
 
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+import io
 
 from config import ADMIN_EMAILS
 from database import db
 from models.user import AdminUserResponse
 from services.auth_service import get_current_admin, is_admin
+from services import media_service
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(get_current_admin)])
 
@@ -46,6 +50,38 @@ class ModuleReorder(BaseModel):
     module_ids: list[str]
 
 
+class CourseUpdate(BaseModel):
+    name: Optional[str] = None
+    tagline: Optional[str] = None
+    description: Optional[str] = None
+    category_id: Optional[str] = None
+    difficulty: Optional[str] = None
+    status: Optional[str] = None
+
+
+class LessonUpdate(BaseModel):
+    title: Optional[str] = None
+    level: Optional[str] = None
+    estimated_minutes: Optional[int] = None
+    content_type: Optional[str] = None
+    day: Optional[int] = None
+    week: Optional[int] = None
+    status: Optional[str] = None
+
+
+class LessonContentUpdate(BaseModel):
+    explanation: Optional[str] = None
+    example: Optional[str] = None
+    activity: Optional[str] = None
+    bengali_tip: Optional[str] = None
+    micro_grammar: Optional[str] = None
+    speaking_task: Optional[str] = None
+
+
+class AssetAttach(BaseModel):
+    lesson_id: str
+
+
 # ══════════════════════════════════════════════════════════
 # USER MANAGEMENT
 # ══════════════════════════════════════════════════════════
@@ -73,7 +109,6 @@ async def list_users(
 
     total = await db.users.count_documents(query)
 
-    # Annotate each user with is_admin flag
     for u in users:
         u["is_admin"] = u.get("email", "").lower() in ADMIN_EMAILS
 
@@ -82,14 +117,12 @@ async def list_users(
 
 @router.get("/users/count")
 async def user_count():
-    """Get total user count."""
     total = await db.users.count_documents({})
     return {"total": total}
 
 
 @router.delete("/users/{username}")
 async def delete_user(username: str):
-    """Delete a user by username. Admins cannot delete themselves."""
     username = username.strip().lower()
     user = await db.users.find_one({"username": username})
     if not user:
@@ -99,91 +132,60 @@ async def delete_user(username: str):
         raise HTTPException(status_code=403, detail="Cannot delete an admin account")
 
     await db.users.delete_one({"username": username})
-    # Also clean up their enrollments
     await db.enrollments.delete_many({"username": username})
 
     return {"detail": f"User '{username}' deleted successfully"}
 
 
 # ══════════════════════════════════════════════════════════
-# CONTENT MANAGEMENT
+# LEGACY CONTENT MANAGEMENT (tools/modules — kept for compatibility)
 # ══════════════════════════════════════════════════════════
 
 @router.get("/tools")
 async def admin_list_tools():
-    """List all tools with module counts."""
     pipeline = [
-        {
-            "$lookup": {
-                "from": "modules",
-                "localField": "id",
-                "foreignField": "tool_id",
-                "as": "modules",
-            }
-        },
-        {
-            "$addFields": {
-                "module_count": {"$size": "$modules"},
-            }
-        },
+        {"$lookup": {"from": "modules", "localField": "id", "foreignField": "tool_id", "as": "modules"}},
+        {"$addFields": {"module_count": {"$size": "$modules"}}},
         {"$project": {"_id": 0, "modules": 0}},
     ]
-    tools = await db.tools.aggregate(pipeline).to_list(100)
-    return tools
+    return await db.tools.aggregate(pipeline).to_list(100)
 
 
 @router.put("/tools/{tool_id}")
 async def update_tool(tool_id: str, update: ToolUpdate):
-    """Update a tool's metadata."""
     existing = await db.tools.find_one({"id": tool_id})
     if not existing:
         raise HTTPException(status_code=404, detail="Tool not found")
-
     update_data = {k: v for k, v in update.dict().items() if v is not None}
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
-
     update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
     await db.tools.update_one({"id": tool_id}, {"$set": update_data})
-
     return {"detail": f"Tool '{tool_id}' updated", **update_data}
 
 
 @router.get("/tools/{tool_id}/modules")
 async def admin_list_modules(tool_id: str):
-    """List all modules for a tool, ordered by day/position."""
-    modules = await db.modules.find(
+    return await db.modules.find(
         {"tool_id": tool_id}, {"_id": 0}
     ).sort([("week", 1), ("day", 1)]).to_list(1000)
-    return modules
 
 
 @router.post("/modules")
 async def create_module(module: ModuleCreate):
-    """Create a new module."""
     existing = await db.modules.find_one({"id": module.id})
     if existing:
         raise HTTPException(status_code=409, detail="Module ID already exists")
-
-    # Verify tool exists
     tool = await db.tools.find_one({"id": module.tool_id})
     if not tool:
         raise HTTPException(status_code=404, detail="Tool not found")
-
     doc = {
-        "id": module.id,
-        "tool_id": module.tool_id,
-        "title": module.title,
-        "level": module.level,
-        "minutes": module.minutes,
-        "day": module.day,
-        "week": module.week,
-        "description": module.description,
-        "isAdvanced": module.level == "advanced",
-        "is_weekly_test": False,
+        "id": module.id, "tool_id": module.tool_id, "title": module.title,
+        "level": module.level, "minutes": module.minutes,
+        "day": module.day, "week": module.week, "description": module.description,
+        "isAdvanced": module.level == "advanced", "is_weekly_test": False,
         "content": {"explanation": "", "example": "", "activity": ""},
-        "quiz": {},
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "quiz": {}, "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.modules.insert_one(doc)
     del doc["_id"]
@@ -192,26 +194,21 @@ async def create_module(module: ModuleCreate):
 
 @router.put("/modules/{module_id}")
 async def update_module(module_id: str, update: ModuleUpdate):
-    """Update a module's metadata."""
     existing = await db.modules.find_one({"id": module_id})
     if not existing:
         raise HTTPException(status_code=404, detail="Module not found")
-
     update_data = {k: v for k, v in update.dict().items() if v is not None}
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
-
     update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
     if "level" in update_data:
         update_data["isAdvanced"] = update_data["level"] == "advanced"
-
     await db.modules.update_one({"id": module_id}, {"$set": update_data})
     return {"detail": f"Module '{module_id}' updated", **update_data}
 
 
 @router.delete("/modules/{module_id}")
 async def delete_module(module_id: str):
-    """Delete a module."""
     result = await db.modules.delete_one({"id": module_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Module not found")
@@ -220,22 +217,276 @@ async def delete_module(module_id: str):
 
 @router.put("/tools/{tool_id}/modules/reorder")
 async def reorder_modules(tool_id: str, reorder: ModuleReorder):
-    """Reorder modules within a tool by setting day values."""
-    # Verify tool exists
     tool = await db.tools.find_one({"id": tool_id})
     if not tool:
         raise HTTPException(status_code=404, detail="Tool not found")
-
     for idx, module_id in enumerate(reorder.module_ids, start=1):
         await db.modules.update_one(
-            {"id": module_id, "tool_id": tool_id},
-            {"$set": {"day": idx}},
+            {"id": module_id, "tool_id": tool_id}, {"$set": {"day": idx}}
         )
-
     return {"detail": f"Reordered {len(reorder.module_ids)} modules"}
 
 
-# ── Stats ────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════
+# LMS — COURSES
+# ══════════════════════════════════════════════════════════
+
+@router.get("/courses")
+async def list_courses(status: Optional[str] = None):
+    """List all LMS courses with lesson counts."""
+    match = {}
+    if status:
+        match["status"] = status
+    pipeline = [
+        {"$match": match},
+        {"$lookup": {"from": "lessons", "localField": "id", "foreignField": "course_id", "as": "lessons_list"}},
+        {"$addFields": {"lesson_count": {"$size": "$lessons_list"}}},
+        {"$project": {"_id": 0, "lessons_list": 0}},
+        {"$sort": {"created_at": -1}},
+    ]
+    return await db.courses.aggregate(pipeline).to_list(100)
+
+
+@router.get("/courses/{course_id}")
+async def get_course(course_id: str):
+    course = await db.courses.find_one({"id": course_id}, {"_id": 0})
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    return course
+
+
+@router.put("/courses/{course_id}")
+async def update_course(course_id: str, update: CourseUpdate):
+    existing = await db.courses.find_one({"id": course_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Course not found")
+    update_data = {k: v for k, v in update.dict().items() if v is not None}
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.courses.update_one({"id": course_id}, {"$set": update_data})
+    return {"detail": f"Course '{course_id}' updated", **update_data}
+
+
+# ══════════════════════════════════════════════════════════
+# LMS — LESSONS
+# ══════════════════════════════════════════════════════════
+
+@router.get("/courses/{course_id}/lessons")
+async def list_lessons(course_id: str):
+    """List all lessons for a course, ordered by sort_order."""
+    lessons = await db.lessons.find(
+        {"course_id": course_id}, {"_id": 0}
+    ).sort([("week", 1), ("sort_order", 1)]).to_list(1000)
+
+    # Attach media asset count for each lesson
+    for lesson in lessons:
+        lesson["media_count"] = await db.media_assets.count_documents(
+            {"id": {"$in": lesson.get("media_asset_ids", [])}}
+        )
+
+    return lessons
+
+
+@router.get("/lessons/{lesson_id}")
+async def get_lesson(lesson_id: str):
+    lesson = await db.lessons.find_one({"id": lesson_id}, {"_id": 0})
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+
+    # Attach content for all languages
+    contents = await db.lesson_contents.find(
+        {"lesson_id": lesson_id}, {"_id": 0}
+    ).to_list(10)
+    lesson["contents"] = {c["language"]: c for c in contents}
+
+    # Attach assessment if exists
+    assessment = await db.assessments.find_one(
+        {"lesson_id": lesson_id}, {"_id": 0}
+    )
+    lesson["assessment"] = assessment
+
+    # Attach media assets
+    asset_ids = lesson.get("media_asset_ids", [])
+    if asset_ids:
+        assets = await db.media_assets.find(
+            {"id": {"$in": asset_ids}}, {"_id": 0}
+        ).to_list(100)
+        lesson["media_assets"] = assets
+    else:
+        lesson["media_assets"] = []
+
+    return lesson
+
+
+@router.put("/lessons/{lesson_id}")
+async def update_lesson(lesson_id: str, update: LessonUpdate):
+    existing = await db.lessons.find_one({"id": lesson_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+    update_data = {k: v for k, v in update.dict().items() if v is not None}
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.lessons.update_one({"id": lesson_id}, {"$set": update_data})
+    return {"detail": f"Lesson '{lesson_id}' updated", **update_data}
+
+
+# ── Lesson Content (per-language) ────────────────────────
+
+@router.get("/lessons/{lesson_id}/content/{language}")
+async def get_lesson_content(lesson_id: str, language: str):
+    content = await db.lesson_contents.find_one(
+        {"lesson_id": lesson_id, "language": language}, {"_id": 0}
+    )
+    if not content:
+        raise HTTPException(status_code=404, detail=f"No {language} content for this lesson")
+    return content
+
+
+@router.put("/lessons/{lesson_id}/content/{language}")
+async def update_lesson_content(lesson_id: str, language: str, update: LessonContentUpdate):
+    lesson = await db.lessons.find_one({"id": lesson_id})
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+
+    update_data = {k: v for k, v in update.dict().items() if v is not None}
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    result = await db.lesson_contents.update_one(
+        {"lesson_id": lesson_id, "language": language},
+        {"$set": update_data},
+        upsert=True,
+    )
+
+    # Ensure language is in lesson's available_languages
+    await db.lessons.update_one(
+        {"id": lesson_id},
+        {"$addToSet": {"available_languages": language}},
+    )
+
+    return {"detail": f"Content updated for lesson '{lesson_id}' ({language})"}
+
+
+# ══════════════════════════════════════════════════════════
+# LMS — ASSESSMENTS
+# ══════════════════════════════════════════════════════════
+
+@router.get("/courses/{course_id}/assessments")
+async def list_assessments(course_id: str):
+    return await db.assessments.find(
+        {"course_id": course_id}, {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+
+
+@router.get("/assessments/{assessment_id}")
+async def get_assessment(assessment_id: str):
+    assessment = await db.assessments.find_one({"id": assessment_id}, {"_id": 0})
+    if not assessment:
+        raise HTTPException(status_code=404, detail="Assessment not found")
+    return assessment
+
+
+# ══════════════════════════════════════════════════════════
+# MEDIA — UPLOAD / DOWNLOAD / MANAGE
+# ══════════════════════════════════════════════════════════
+
+@router.post("/media/upload")
+async def upload_media(
+    file: UploadFile = File(...),
+    course_id: Optional[str] = Form(None),
+    lesson_id: Optional[str] = Form(None),
+    tags: Optional[str] = Form(None),
+    current_admin: dict = Depends(get_current_admin),
+):
+    """Upload a document or image file (max 16MB).
+
+    Accepted formats: PDF, DOCX, DOC, PNG, JPG, WEBP, SVG, XLSX, PPTX
+    """
+    file_data = await file.read()
+    tag_list = [t.strip() for t in (tags or "").split(",") if t.strip()]
+
+    try:
+        asset = await media_service.upload_file(
+            file_data=file_data,
+            filename=file.filename or "untitled",
+            content_type=file.content_type or "application/octet-stream",
+            uploaded_by=current_admin.get("username", "admin"),
+            course_id=course_id,
+            lesson_id=lesson_id,
+            tags=tag_list,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return asset
+
+
+@router.get("/media")
+async def list_media(
+    type: Optional[str] = Query(None, max_length=20),
+    course_id: Optional[str] = Query(None, max_length=100),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """List uploaded media assets with optional filters."""
+    assets, total = await media_service.list_assets(
+        asset_type=type, course_id=course_id, skip=skip, limit=limit
+    )
+    return {"assets": assets, "total": total}
+
+
+@router.get("/media/{asset_id}")
+async def get_media_info(asset_id: str):
+    """Get media asset metadata."""
+    asset = await db.media_assets.find_one({"id": asset_id}, {"_id": 0})
+    if not asset:
+        raise HTTPException(status_code=404, detail="Media asset not found")
+    return asset
+
+
+@router.get("/media/{asset_id}/download")
+async def download_media(asset_id: str):
+    """Download the actual file."""
+    try:
+        file_data, filename, content_type = await media_service.get_file_data(asset_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Media asset not found")
+
+    return StreamingResponse(
+        io.BytesIO(file_data),
+        media_type=content_type,
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@router.delete("/media/{asset_id}")
+async def delete_media(asset_id: str):
+    """Delete a media asset and its file."""
+    try:
+        await media_service.delete_file(asset_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Media asset not found")
+    return {"detail": f"Media asset '{asset_id}' deleted"}
+
+
+@router.post("/media/{asset_id}/attach")
+async def attach_media_to_lesson(asset_id: str, body: AssetAttach):
+    """Attach a media asset to a lesson."""
+    try:
+        await media_service.attach_to_lesson(asset_id, body.lesson_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {"detail": f"Asset '{asset_id}' attached to lesson '{body.lesson_id}'"}
+
+
+# ══════════════════════════════════════════════════════════
+# STATS
+# ══════════════════════════════════════════════════════════
+
 @router.get("/stats")
 async def admin_stats():
     """Platform overview stats for the admin dashboard."""
@@ -243,10 +494,16 @@ async def admin_stats():
     tools_count = await db.tools.count_documents({})
     modules_count = await db.modules.count_documents({})
     enrollments_count = await db.enrollments.count_documents({})
+    courses_count = await db.courses.count_documents({})
+    lessons_count = await db.lessons.count_documents({})
+    media_count = await db.media_assets.count_documents({})
 
     return {
         "users": users_count,
         "tools": tools_count,
         "modules": modules_count,
         "enrollments": enrollments_count,
+        "courses": courses_count,
+        "lessons": lessons_count,
+        "media_assets": media_count,
     }
