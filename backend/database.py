@@ -149,6 +149,11 @@ async def create_indexes():
         [("entity_type", 1), ("entity_id", 1)]
     )
 
+    # ── Course Generation (AI-assisted drafts) ───────────
+    await db.course_drafts.create_index("id", unique=True)
+    await db.course_drafts.create_index("admin_username")
+    await db.course_drafts.create_index("status")
+
 
 # ── Curriculum Seeding ────────────────────────────────────
 async def seed_curriculum_collections():

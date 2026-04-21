@@ -9,6 +9,7 @@ from routes.enrollment import router as enrollment_router
 from routes.site import router as site_router
 from routes.status import router as status_router
 from routes.admin import router as admin_router
+from routes.course_generation import router as course_gen_router
 
 api_router = APIRouter(prefix="/api")
 
@@ -19,3 +20,4 @@ api_router.include_router(enrollment_router)
 api_router.include_router(site_router)
 api_router.include_router(status_router)
 api_router.include_router(admin_router)
+api_router.include_router(course_gen_router)
