@@ -60,4 +60,5 @@ class AdminUserResponse(BaseModel):
     created_at: str
     last_login: Optional[str] = None
     is_admin: bool = False
+    is_super_admin: bool = False
     preferred_language: str = "en"

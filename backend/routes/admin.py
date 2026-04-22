@@ -115,7 +115,10 @@ async def list_users(
     total = await db.users.count_documents(query)
 
     for u in users:
-        u["is_admin"] = u.get("email", "").lower() in ADMIN_EMAILS
+        email = u.get("email", "").lower()
+        is_super = email in ADMIN_EMAILS
+        u["is_admin"] = is_super or bool(u.get("is_admin", False))
+        u["is_super_admin"] = is_super  # UI uses this to prevent demoting super-admins
 
     return users
 
@@ -124,6 +127,54 @@ async def list_users(
 async def user_count():
     total = await db.users.count_documents({})
     return {"total": total}
+
+
+class RoleUpdate(BaseModel):
+    is_admin: bool
+
+
+@router.put("/users/{username}/role")
+async def update_user_role(
+    username: str,
+    body: RoleUpdate,
+    current_admin: dict = Depends(get_current_admin),
+):
+    """Promote or demote a user to/from admin role.
+
+    Only super-admins (those in ADMIN_EMAILS) can change roles.
+    Super-admin accounts cannot be demoted.
+    """
+    # Only super-admins (env-var list) can manage roles
+    caller_email = current_admin.get("email", "").lower()
+    if caller_email not in ADMIN_EMAILS:
+        raise HTTPException(
+            status_code=403,
+            detail="Only super-admins can manage admin roles",
+        )
+
+    username = username.strip().lower()
+    user = await db.users.find_one({"username": username})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Prevent demoting a super-admin
+    user_email = user.get("email", "").lower()
+    if user_email in ADMIN_EMAILS and not body.is_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Cannot demote a super-admin (remove from ADMIN_EMAILS env var instead)",
+        )
+
+    await db.users.update_one(
+        {"username": username},
+        {"$set": {
+            "is_admin": body.is_admin,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+
+    action = "promoted to admin" if body.is_admin else "demoted to regular user"
+    return {"detail": f"User '{username}' {action}"}
 
 
 @router.delete("/users/{username}")

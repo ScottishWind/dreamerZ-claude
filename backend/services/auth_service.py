@@ -83,8 +83,15 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
 
 
 def is_admin(user: dict) -> bool:
-    """Check if a user has admin privileges (based on hardcoded email list)."""
-    return user.get("email", "").lower() in ADMIN_EMAILS
+    """Check if a user has admin privileges.
+
+    A user is an admin if their email is in the ADMIN_EMAILS env-var list
+    (super-admins) OR if they have been promoted via the admin panel
+    (is_admin flag stored in the DB).
+    """
+    if user.get("email", "").lower() in ADMIN_EMAILS:
+        return True
+    return bool(user.get("is_admin", False))
 
 
 async def get_current_admin(authorization: Optional[str] = Header(None)):

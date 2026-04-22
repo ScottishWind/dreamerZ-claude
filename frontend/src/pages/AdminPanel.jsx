@@ -74,6 +74,7 @@ const UsersTab = ({ token }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [roleLoading, setRoleLoading] = useState(null);
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
@@ -101,6 +102,26 @@ const UsersTab = ({ token }) => {
       setDeleteConfirm(null);
     } catch (e) {
       setError(e.message);
+    }
+  };
+
+  const handleToggleAdmin = async (username, currentIsAdmin) => {
+    setRoleLoading(username);
+    setError('');
+    try {
+      await adminFetch(`/users/${username}/role`, token, {
+        method: 'PUT',
+        body: JSON.stringify({ is_admin: !currentIsAdmin }),
+      });
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.username === username ? { ...u, is_admin: !currentIsAdmin } : u
+        )
+      );
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setRoleLoading(null);
     }
   };
 
@@ -154,25 +175,51 @@ const UsersTab = ({ token }) => {
                   <td className="px-4 py-3">
                     {u.is_admin ? (
                       <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
-                        <Shield className="w-3 h-3" /> Admin
+                        <Shield className="w-3 h-3" /> {u.is_super_admin ? 'Super Admin' : 'Admin'}
                       </span>
                     ) : (
                       <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">User</span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    {u.is_admin ? (
-                      <span className="text-xs text-slate-300">Protected</span>
-                    ) : deleteConfirm === u.username ? (
-                      <div className="flex items-center gap-1 justify-end">
-                        <button onClick={() => handleDelete(u.username)} className="text-xs bg-red-500 text-white px-2 py-1 rounded-lg hover:bg-red-600">Confirm</button>
-                        <button onClick={() => setDeleteConfirm(null)} className="text-xs bg-slate-100 text-slate-600 px-2 py-1 rounded-lg hover:bg-slate-200">Cancel</button>
-                      </div>
-                    ) : (
-                      <button onClick={() => setDeleteConfirm(u.username)} className="text-slate-400 hover:text-red-500 transition-colors p-1" title="Delete user">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
+                    <div className="flex items-center gap-2 justify-end">
+                      {/* Admin toggle — super-admins cannot be toggled */}
+                      {u.is_super_admin ? (
+                        <span className="text-xs text-slate-300" title="Super-admin (set via environment)">Protected</span>
+                      ) : (
+                        <button
+                          onClick={() => handleToggleAdmin(u.username, u.is_admin)}
+                          disabled={roleLoading === u.username}
+                          className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-colors ${
+                            u.is_admin
+                              ? 'bg-amber-50 text-amber-600 hover:bg-amber-100 border border-amber-200'
+                              : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-200'
+                          } disabled:opacity-50`}
+                          title={u.is_admin ? 'Remove admin privileges' : 'Grant admin privileges'}
+                        >
+                          {roleLoading === u.username ? (
+                            <RefreshCw className="w-3 h-3 animate-spin inline-block" />
+                          ) : u.is_admin ? (
+                            <>Remove Admin</>
+                          ) : (
+                            <>Make Admin</>
+                          )}
+                        </button>
+                      )}
+                      {/* Delete — cannot delete admins */}
+                      {!u.is_admin && (
+                        deleteConfirm === u.username ? (
+                          <div className="flex items-center gap-1">
+                            <button onClick={() => handleDelete(u.username)} className="text-xs bg-red-500 text-white px-2 py-1 rounded-lg hover:bg-red-600">Confirm</button>
+                            <button onClick={() => setDeleteConfirm(null)} className="text-xs bg-slate-100 text-slate-600 px-2 py-1 rounded-lg hover:bg-slate-200">Cancel</button>
+                          </div>
+                        ) : (
+                          <button onClick={() => setDeleteConfirm(u.username)} className="text-slate-400 hover:text-red-500 transition-colors p-1" title="Delete user">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -910,35 +957,4 @@ export const AdminPanel = () => {
         </div>
 
         {/* Tab bar */}
-        <div className="flex gap-1 bg-white rounded-xl border border-slate-200 p-1 mb-6 overflow-x-auto">
-          {TABS.map((tab) => {
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all flex-1 justify-center whitespace-nowrap
-                  ${isActive
-                    ? 'bg-primary text-white shadow-sm'
-                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
-                  }`}
-              >
-                <tab.icon className="w-4 h-4" />
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Tab content */}
-        {activeTab === 'users' && <UsersTab token={token} />}
-        {activeTab === 'content' && <ContentTab token={token} />}
-        {activeTab === 'course-creator' && <CourseCreatorTab token={token} />}
-        {activeTab === 'media' && <MediaTab token={token} />}
-        {activeTab === 'stats' && <StatsTab token={token} />}
-      </div>
-    </div>
-  );
-};
-
-export default AdminPanel;
+        <div className="flex gap-1 bg-white rounded-xl border border-slate-200 p-1 mb-6 overflow-x-a

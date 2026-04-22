@@ -79,7 +79,7 @@ async def register_user(user: UserCreate):
         "username": username,
         "email": email,
         "created_at": created_at,
-        "is_admin": email in ADMIN_EMAILS,
+        "is_admin": email.lower() in ADMIN_EMAILS,
         "preferred_language": lang,
     }
 
