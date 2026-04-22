@@ -48,7 +48,7 @@ CORS_ORIGINS = [o.strip() for o in CORS_ORIGINS_RAW.split(",") if o.strip()]
 
 # ── Anthropic (Claude) ────────────────────────────────────
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-opus-4-20250918")
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-opus-4-7")
 
 # ── Request Size ──────────────────────────────────────────
 MAX_REQUEST_SIZE = int(os.environ.get("MAX_REQUEST_SIZE", 10_000_000))  # 10 MB
