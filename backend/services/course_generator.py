@@ -177,7 +177,6 @@ async def _call_claude_json(
     system_prompt: str,
     user_prompt: str,
     max_tokens: int = 4096,
-    temperature: float = 0.3,
 ) -> dict:
     """Call Claude and parse a JSON object from the response."""
     if not ANTHROPIC_API_KEY:
@@ -188,13 +187,16 @@ async def _call_claude_json(
     from anthropic import AsyncAnthropic
 
     client = AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
-    response = await client.messages.create(
+    kwargs = dict(
         model=CLAUDE_MODEL,
         system=system_prompt,
         messages=[{"role": "user", "content": user_prompt}],
         max_tokens=max_tokens,
-        temperature=temperature,
     )
+    # Some models (e.g. claude-opus-4-7) don't support the temperature parameter
+    if "opus-4-7" not in CLAUDE_MODEL:
+        kwargs["temperature"] = 0.3
+    response = await client.messages.create(**kwargs)
     text = response.content[0].text
     try:
         return _extract_json(text)
@@ -322,7 +324,7 @@ async def generate_blueprint(
     )
 
     blueprint = await _call_claude_json(
-        BLUEPRINT_SYSTEM_PROMPT, user_prompt, max_tokens=4096, temperature=0.4
+        BLUEPRINT_SYSTEM_PROMPT, user_prompt, max_tokens=4096
     )
 
     # Normalise IDs so downstream references are stable
@@ -345,7 +347,7 @@ async def generate_lesson_content(
     """Generate long-form content + quiz for a single lesson."""
     user_prompt = _lesson_user_prompt(lesson, tone, source_text)
     return await _call_claude_json(
-        LESSON_SYSTEM_PROMPT, user_prompt, max_tokens=3000, temperature=0.5
+        LESSON_SYSTEM_PROMPT, user_prompt, max_tokens=3000
     )
 
 
@@ -357,7 +359,7 @@ async def critique_lesson_content(
     user_prompt = _critique_user_prompt(generated_content, source_text)
     try:
         return await _call_claude_json(
-            CRITIQUE_SYSTEM_PROMPT, user_prompt, max_tokens=1024, temperature=0.2
+            CRITIQUE_SYSTEM_PROMPT, user_prompt, max_tokens=1024
         )
     except Exception as exc:
         logger.warning("Critique step failed, defaulting to valid: %s", exc)

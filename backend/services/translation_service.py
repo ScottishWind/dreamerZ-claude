@@ -46,7 +46,6 @@ async def translate_text(text: str, target_lang: str) -> str:
                 }
             ],
             max_tokens=4096,
-            temperature=0.3,
         )
         return response.content[0].text.strip()
 

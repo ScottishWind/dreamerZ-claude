@@ -154,7 +154,6 @@ async def get_ai_response(
             system=TUTOR_SYSTEM_PROMPT,
             messages=messages,
             max_tokens=1024,
-            temperature=0.7,
         )
 
         text = response.content[0].text
@@ -207,7 +206,6 @@ async def get_roleplay_response(
             system=system_message,
             messages=messages,
             max_tokens=256,
-            temperature=0.8,
         )
 
         text = response.content[0].text
