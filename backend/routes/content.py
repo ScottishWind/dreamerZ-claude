@@ -142,6 +142,135 @@ async def get_content_tool(tool_id: str, lang: str = Query(default="en", max_len
     return {**tool, "modules": modules}
 
 
+# ── Published Courses (LMS / AI-generated) ──────────────
+
+@router.get("/courses")
+async def get_published_courses():
+    """Get all published courses with section/lesson counts for the learn hub."""
+    pipeline = [
+        {"$match": {"status": "published"}},
+        {
+            "$lookup": {
+                "from": "sections",
+                "localField": "id",
+                "foreignField": "course_id",
+                "as": "sections",
+            }
+        },
+        {
+            "$lookup": {
+                "from": "lessons",
+                "localField": "id",
+                "foreignField": "course_id",
+                "as": "all_lessons",
+            }
+        },
+        {"$project": {"_id": 0}},
+        {"$sort": {"created_at": -1}},
+    ]
+    courses = await db.courses.aggregate(pipeline).to_list(100)
+
+    for course in courses:
+        # Clean up _id from sub-docs
+        course["sections"] = [
+            {k: v for k, v in s.items() if k != "_id"}
+            for s in course.get("sections", [])
+        ]
+        lessons = [
+            {k: v for k, v in l.items() if k != "_id"}
+            for l in course.get("all_lessons", [])
+        ]
+        # Nest lessons under their sections
+        for section in course["sections"]:
+            section["lessons"] = sorted(
+                [l for l in lessons if l.get("section_id") == section["id"]],
+                key=lambda l: l.get("sort_order", 0),
+            )
+        del course["all_lessons"]
+
+    return courses
+
+
+@router.get("/courses/{course_id}")
+async def get_published_course(
+    course_id: str,
+    lang: str = Query(default="en", max_length=5),
+):
+    """Get a single published course with full content (for the player)."""
+    course_id = sanitize_id(course_id, "course_id")
+    course = await db.courses.find_one(
+        {"id": course_id, "status": "published"}, {"_id": 0}
+    )
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    # Sections
+    sections = await db.sections.find(
+        {"course_id": course_id}, {"_id": 0}
+    ).sort("sort_order", 1).to_list(100)
+
+    # All lessons for this course
+    lessons = await db.lessons.find(
+        {"course_id": course_id}, {"_id": 0}
+    ).sort("sort_order", 1).to_list(1000)
+
+    # Batch-load lesson content for requested language
+    lesson_ids = [l["id"] for l in lessons]
+    contents = await db.lesson_contents.find(
+        {"lesson_id": {"$in": lesson_ids}, "language": lang}, {"_id": 0}
+    ).to_list(1000)
+    content_map = {c["lesson_id"]: c for c in contents}
+
+    # Fall back to English if requested language content missing
+    if lang != "en":
+        en_contents = await db.lesson_contents.find(
+            {"lesson_id": {"$in": lesson_ids}, "language": "en"}, {"_id": 0}
+        ).to_list(1000)
+        en_map = {c["lesson_id"]: c for c in en_contents}
+    else:
+        en_map = {}
+
+    # Batch-load assessments
+    assessments = await db.assessments.find(
+        {"course_id": course_id}, {"_id": 0}
+    ).to_list(500)
+    assess_map = {a["lesson_id"]: a for a in assessments}
+
+    # Assemble: convert LMS structure → tool-like flat module list for the player
+    modules = []
+    for lesson in lessons:
+        lid = lesson["id"]
+        lc = content_map.get(lid) or en_map.get(lid, {})
+        quiz = assess_map.get(lid)
+
+        module = {
+            "id": lid,
+            "tool_id": course_id,
+            "title": lesson.get("title", ""),
+            "level": lesson.get("level", "beginner"),
+            "minutes": lesson.get("estimated_minutes", 10),
+            "week": lesson.get("week"),
+            "day": lesson.get("sort_order"),
+            "isAdvanced": lesson.get("level") == "advanced",
+            "is_weekly_test": lesson.get("is_weekly_test", False),
+            "description": (lc.get("explanation") or "")[:120],
+            "content": {
+                "explanation": lc.get("explanation", ""),
+                "example": lc.get("example", ""),
+                "activity": lc.get("activity", ""),
+            },
+            "quiz": quiz if quiz else {},
+            "media_assets": [],
+        }
+        modules.append(module)
+
+    return {
+        **course,
+        "id": course_id,
+        "modules": modules,
+    }
+
+
 @router.get("/modules")
 async def get_content_modules(tool_id: Optional[str] = None):
     query = {}

@@ -49,10 +49,15 @@ export const ToolJourney = () => {
 
       try {
         const langParam = language && language !== 'en' ? `?lang=${language}` : '';
-        const response = await fetch(`${API_BASE}/api/content/tools/${toolId}${langParam}`);
+        // Try legacy tools endpoint first, then published courses
+        let response = await fetch(`${API_BASE}/api/content/tools/${toolId}${langParam}`);
         if (!response.ok) {
-          const data = await response.json();
-          throw new Error(data.detail || data.message || 'Failed to load tool content.');
+          // Not a legacy tool — try the courses endpoint
+          response = await fetch(`${API_BASE}/api/content/courses/${toolId}${langParam}`);
+          if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.detail || data.message || 'Failed to load content.');
+          }
         }
         const data = await response.json();
         setTool(data);

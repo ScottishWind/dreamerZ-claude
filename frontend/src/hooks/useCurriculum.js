@@ -33,13 +33,47 @@ export const useCurriculum = () => {
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE}/api/content/tools`);
-      if (!response.ok) {
-        const data = await response.json();
+      // Fetch legacy tools and published courses in parallel
+      const [toolsRes, coursesRes] = await Promise.all([
+        fetch(`${API_BASE}/api/content/tools`),
+        fetch(`${API_BASE}/api/content/courses`).catch(() => null),
+      ]);
+
+      if (!toolsRes.ok) {
+        const data = await toolsRes.json();
         throw new Error(data.detail || data.message || 'Failed to load curriculum content.');
       }
-      const data = await response.json();
-      setTools(data.map((tool) => formatTool(tool, tool.modules || [])));
+      const toolsData = await toolsRes.json();
+      const formattedTools = toolsData.map((tool) => formatTool(tool, tool.modules || []));
+
+      // Format published courses as tool-like objects
+      let formattedCourses = [];
+      if (coursesRes && coursesRes.ok) {
+        const coursesData = await coursesRes.json();
+        formattedCourses = coursesData.map((course) => {
+          const allLessons = (course.sections || []).flatMap((s) => s.lessons || []);
+          const diffMap = { beginner: 'Beginner', intermediate: 'Intermediate', advanced: 'Advanced' };
+          return {
+            ...formatTool(
+              {
+                id: course.id,
+                name: course.name,
+                description: course.description,
+                tagline: course.tagline || (course.description || '').slice(0, 80),
+                category_id: course.category_id || 'ai-learning',
+                theme: course.theme || { color: '#7C3AED' },
+                totalXP: course.total_xp || allLessons.length * 100,
+                icon: course.icon || '📚',
+              },
+              allLessons
+            ),
+            difficulty: diffMap[course.difficulty] || 'Beginner',
+            _isCourse: true,
+          };
+        });
+      }
+
+      setTools([...formattedTools, ...formattedCourses]);
     } catch (err) {
       setError(err.message || 'Unable to load curriculum content.');
       setTools([]);

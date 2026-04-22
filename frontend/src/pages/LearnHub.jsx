@@ -44,14 +44,20 @@ export const LearnHub = () => {
   // Include spoken-english module count in overall completion
   const overallCompletion = getOverallCompletion(spokenModuleCount);
 
+  // Published AI-generated courses from the API
+  const publishedCourses = apiTools.filter(t => t._isCourse);
+
   // Search filtering for tools grid
   const query = searchQuery.toLowerCase().trim();
 
   const filteredToolsData = useMemo(() => {
+    // Static tools + published courses for AI Learning
+    const allAITools = [...toolsData, ...publishedCourses];
+
     let tools = activeCategory === 'all'
-      ? toolsData
+      ? allAITools
       : activeCategory === 'ai-learning'
-        ? toolsData
+        ? allAITools
         : [];
 
     if (query) {
@@ -66,7 +72,7 @@ export const LearnHub = () => {
     }
 
     return tools;
-  }, [activeCategory, query]);
+  }, [activeCategory, query, publishedCourses]);
 
   // Search filtering for curriculum modules (from API data)
   const matchingModules = useMemo(() => {
