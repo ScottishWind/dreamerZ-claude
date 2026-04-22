@@ -241,13 +241,18 @@ const UsersTab = ({ token }) => {
 // ══════════════════════════════════════════════════════════
 const ContentTab = ({ token }) => {
   const [tools, setTools] = useState([]);
+  const [courses, setCourses] = useState([]);
   const [expandedTool, setExpandedTool] = useState(null);
+  const [expandedCourse, setExpandedCourse] = useState(null);
+  const [courseLessons, setCourseLessons] = useState({});
   const [modules, setModules] = useState({});
   const [loading, setLoading] = useState(true);
   const [editingModule, setEditingModule] = useState(null);
   const [editForm, setEditForm] = useState({});
   const [editingTool, setEditingTool] = useState(null);
   const [toolEditForm, setToolEditForm] = useState({});
+  const [editingLesson, setEditingLesson] = useState(null);
+  const [lessonEditForm, setLessonEditForm] = useState({});
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [attachingModule, setAttachingModule] = useState(null);
@@ -262,8 +267,12 @@ const ContentTab = ({ token }) => {
   const loadTools = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await adminFetch('/tools', token);
-      setTools(data);
+      const [toolsData, coursesData] = await Promise.all([
+        adminFetch('/tools', token),
+        adminFetch('/courses', token).catch(() => []),
+      ]);
+      setTools(toolsData);
+      setCourses(coursesData);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -272,6 +281,46 @@ const ContentTab = ({ token }) => {
   }, [token]);
 
   useEffect(() => { loadTools(); }, [loadTools]);
+
+  // Course-specific handlers
+  const loadCourseLessons = async (courseId) => {
+    if (courseLessons[courseId]) return;
+    try {
+      const data = await adminFetch(`/courses/${courseId}/lessons`, token);
+      setCourseLessons((prev) => ({ ...prev, [courseId]: data }));
+    } catch (e) { setError(e.message); }
+  };
+
+  const toggleCourse = (courseId) => {
+    if (expandedCourse === courseId) { setExpandedCourse(null); }
+    else { setExpandedCourse(courseId); loadCourseLessons(courseId); }
+  };
+
+  const startEditLesson = (lesson) => {
+    setEditingLesson(lesson.id);
+    setLessonEditForm({
+      title: lesson.title || '',
+      level: lesson.level || 'beginner',
+      estimated_minutes: lesson.estimated_minutes || 10,
+    });
+  };
+
+  const saveLesson = async (lessonId, courseId) => {
+    try {
+      await adminFetch(`/lessons/${lessonId}`, token, {
+        method: 'PUT',
+        body: JSON.stringify(lessonEditForm),
+      });
+      setCourseLessons((prev) => ({
+        ...prev,
+        [courseId]: prev[courseId].map((l) =>
+          l.id === lessonId ? { ...l, ...lessonEditForm } : l
+        ),
+      }));
+      setEditingLesson(null);
+      setSuccess('Lesson updated'); setTimeout(() => setSuccess(''), 3000);
+    } catch (e) { setError(e.message); }
+  };
 
   const loadModules = async (toolId) => {
     if (modules[toolId]) return;
@@ -458,6 +507,11 @@ const ContentTab = ({ token }) => {
         <p className="text-[10px] text-slate-400 flex-1">Uses Claude AI to translate English content. Translations are saved as drafts for review.</p>
       </div>
 
+      {/* Section: Legacy Tools */}
+      {tools.length > 0 && (
+        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mt-2">Legacy Tools</h3>
+      )}
+
       {tools.map((tool) => (
         <div key={tool.id} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3">
@@ -619,6 +673,138 @@ const ContentTab = ({ token }) => {
           </AnimatePresence>
         </div>
       ))}
+
+      {/* Section: AI-Generated Courses */}
+      {courses.length > 0 && (
+        <>
+          <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mt-6 flex items-center gap-2">
+            <Sparkles className="w-3.5 h-3.5" /> AI-Generated Courses
+          </h3>
+
+          {courses.map((course) => (
+            <div key={course.id} className="bg-white rounded-xl border border-violet-200 overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3">
+                <button onClick={() => toggleCourse(course.id)} className="flex items-center gap-3 flex-1 text-left">
+                  {expandedCourse === course.id ? <ChevronUp className="w-4 h-4 text-violet-400" /> : <ChevronDown className="w-4 h-4 text-violet-400" />}
+                  <div>
+                    <span className="font-semibold text-slate-900">{course.name}</span>
+                    <span className="ml-2 text-xs text-slate-400">
+                      {course.lesson_count || course.total_lessons || 0} lessons · {course.difficulty || 'beginner'}
+                    </span>
+                    <span className="ml-2 inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-600">
+                      <Sparkles className="w-2.5 h-2.5" /> AI
+                    </span>
+                  </div>
+                </button>
+                <div className="flex items-center gap-1">
+                  <select
+                    value={course.difficulty || 'beginner'}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={async (e) => {
+                      const newDiff = e.target.value;
+                      try {
+                        await adminFetch(`/courses/${course.id}`, token, {
+                          method: 'PUT',
+                          body: JSON.stringify({ difficulty: newDiff }),
+                        });
+                        setCourses((prev) => prev.map((c) => c.id === course.id ? { ...c, difficulty: newDiff } : c));
+                      } catch (err) { console.error('Failed to update difficulty', err); }
+                    }}
+                    className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white text-slate-700"
+                    title="Set difficulty level"
+                  >
+                    <option value="beginner">Beginner</option>
+                    <option value="intermediate">Intermediate</option>
+                    <option value="advanced">Advanced</option>
+                  </select>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleTranslateTool(course.id); }}
+                    disabled={translating[course.id]}
+                    className="p-1.5 text-slate-400 hover:text-violet-600 hover:bg-violet-50 rounded-lg disabled:opacity-50"
+                    title={`Translate all to ${translateLang}`}
+                  >
+                    {translating[course.id] ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {course.description && (
+                <div className="px-4 pb-2 text-xs text-slate-500">{course.description.slice(0, 150)}{course.description.length > 150 ? '...' : ''}</div>
+              )}
+
+              <AnimatePresence>
+                {expandedCourse === course.id && (
+                  <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="overflow-hidden border-t border-violet-100">
+                    <div className="divide-y divide-slate-50">
+                      {(courseLessons[course.id] || []).map((lesson) => (
+                        <div key={lesson.id} className="px-4 py-2.5 flex items-center gap-3 hover:bg-slate-50/50 text-sm">
+                          <GripVertical className="w-3.5 h-3.5 text-slate-300 flex-shrink-0" />
+                          {editingLesson === lesson.id ? (
+                            <div className="flex-1 space-y-2">
+                              <input
+                                value={lessonEditForm.title}
+                                onChange={(e) => setLessonEditForm((f) => ({ ...f, title: e.target.value }))}
+                                className="w-full border border-slate-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30"
+                              />
+                              <div className="flex gap-2">
+                                <select
+                                  value={lessonEditForm.level}
+                                  onChange={(e) => setLessonEditForm((f) => ({ ...f, level: e.target.value }))}
+                                  className="border border-slate-200 rounded-lg px-2 py-1 text-xs"
+                                >
+                                  <option value="beginner">Beginner</option>
+                                  <option value="intermediate">Intermediate</option>
+                                  <option value="advanced">Advanced</option>
+                                </select>
+                                <input
+                                  type="number"
+                                  value={lessonEditForm.estimated_minutes}
+                                  onChange={(e) => setLessonEditForm((f) => ({ ...f, estimated_minutes: parseInt(e.target.value) || 0 }))}
+                                  className="w-20 border border-slate-200 rounded-lg px-2 py-1 text-xs"
+                                  placeholder="min"
+                                />
+                                <button onClick={() => saveLesson(lesson.id, course.id)} className="text-emerald-600 hover:bg-emerald-50 p-1 rounded-lg"><Save className="w-4 h-4" /></button>
+                                <button onClick={() => setEditingLesson(null)} className="text-slate-400 hover:bg-slate-100 p-1 rounded-lg"><X className="w-4 h-4" /></button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex-1 min-w-0">
+                                <span className="text-slate-800 font-medium truncate block">{lesson.title}</span>
+                                <span className="text-xs text-slate-400">
+                                  {lesson.level || 'beginner'} · {lesson.estimated_minutes || 10}min
+                                  {lesson.has_quiz && <span className="ml-1 text-violet-500 font-semibold">· Quiz</span>}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1 flex-shrink-0">
+                                <button
+                                  onClick={() => handleTranslateModule(lesson.id)}
+                                  disabled={translating[lesson.id]}
+                                  className="p-1 text-slate-400 hover:text-violet-600 hover:bg-violet-50 rounded-lg disabled:opacity-50"
+                                  title={`Translate to ${translateLang}`}
+                                >
+                                  {translating[lesson.id] ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Languages className="w-3.5 h-3.5" />}
+                                </button>
+                                <button onClick={() => startEditLesson(lesson)} className="p-1 text-slate-400 hover:text-primary hover:bg-primary/5 rounded-lg" title="Edit"><Edit3 className="w-3.5 h-3.5" /></button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      ))}
+                      {courseLessons[course.id] && courseLessons[course.id].length === 0 && (
+                        <div className="px-4 py-4 text-center text-sm text-slate-400">No lessons in this course</div>
+                      )}
+                      {!courseLessons[course.id] && (
+                        <div className="px-4 py-4 text-center text-sm text-slate-400"><RefreshCw className="w-4 h-4 animate-spin inline-block mr-1" />Loading...</div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          ))}
+        </>
+      )}
     </div>
   );
 };

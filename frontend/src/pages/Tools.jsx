@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { toolsData } from '../data/toolsData';
 import { ToolCard } from '../components/ToolCard';
 import { useProgress } from '../hooks/useProgress';
 import { useCurriculum } from '../hooks/useCurriculum';
@@ -38,9 +37,13 @@ export const Tools = () => {
   const spokenCompletion = getToolCompletion('spoken-english-30day', spokenModuleCount);
   const spokenCompletedCount = Object.values(progress.completedModules?.['spoken-english-30day'] || {}).filter(m => m.completed).length;
 
-  // AI Learning aggregate progress across static tools
-  const aiTotalModules = toolsData.reduce((sum, t) => sum + (t.modules?.length || 0), 0);
-  const aiCompletedModules = toolsData.reduce((sum, t) => {
+  // AI Learning tools from API (excludes spoken-english category)
+  const aiLearningTools = apiTools.filter(t => t.category_id !== 'spoken-writing-english');
+  const aiToolCount = aiLearningTools.length;
+
+  // AI Learning aggregate progress across all AI tools (from API)
+  const aiTotalModules = aiLearningTools.reduce((sum, t) => sum + (t.modules?.length || 0), 0);
+  const aiCompletedModules = aiLearningTools.reduce((sum, t) => {
     return sum + Object.values(progress.completedModules?.[t.id] || {}).filter(m => m.completed).length;
   }, 0);
   const aiCompletion = aiTotalModules > 0 ? Math.round((aiCompletedModules / aiTotalModules) * 100) : 0;
@@ -48,11 +51,11 @@ export const Tools = () => {
   // Include spoken-english module count in overall completion
   const overallCompletion = getOverallCompletion(spokenModuleCount);
 
-  // Combine static AI tools with category filter
+  // Use API tools with category filter (no static data)
   const filteredToolsData = activeCategory === 'all'
-    ? toolsData
+    ? aiLearningTools
     : activeCategory === 'ai-learning'
-      ? toolsData
+      ? aiLearningTools
       : [];
 
   return (
@@ -192,7 +195,7 @@ export const Tools = () => {
                           </div>
                           <div>
                             <div className="flex items-center gap-2 mb-1">
-                              <span className="bg-white/20 text-white text-xs font-bold px-2 py-0.5 rounded-full">5 TOOLS</span>
+                              <span className="bg-white/20 text-white text-xs font-bold px-2 py-0.5 rounded-full">{aiToolCount} TOOLS</span>
                               <span className="bg-white/20 text-white text-xs font-semibold px-2 py-0.5 rounded-full">{aiTotalModules} Modules</span>
                               <span className="bg-amber-400 text-slate-900 text-xs font-bold px-2 py-0.5 rounded-full">&#8377;{aiPrice}</span>
                             </div>
@@ -226,7 +229,7 @@ export const Tools = () => {
                               <>
                                 <div className="bg-white/15 backdrop-blur rounded-xl px-3 py-2 text-center">
                                   <Brain className="w-4 h-4 text-white mx-auto mb-1" />
-                                  <div className="text-xs text-indigo-100">5 AI Tools</div>
+                                  <div className="text-xs text-indigo-100">{aiToolCount} AI Tools</div>
                                 </div>
                                 <div className="bg-white/15 backdrop-blur rounded-xl px-3 py-2 text-center">
                                   <Sparkles className="w-4 h-4 text-white mx-auto mb-1" />

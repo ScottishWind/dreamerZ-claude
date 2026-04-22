@@ -189,7 +189,7 @@ export const Curriculum = () => {
                     <span className="bg-rose-500 text-white text-xs font-bold px-2 py-0.5 rounded-full ml-2">NEW</span>
                   )}
                   {category.id === 'ai-learning' && (
-                    <span className="bg-indigo-600 text-white text-xs font-bold px-2 py-0.5 rounded-full ml-2">5 TOOLS</span>
+                    <span className="bg-indigo-600 text-white text-xs font-bold px-2 py-0.5 rounded-full ml-2">{category.tools.length} TOOLS</span>
                   )}
                 </h2>
                 <div className="flex items-center justify-between mt-2 ml-12">

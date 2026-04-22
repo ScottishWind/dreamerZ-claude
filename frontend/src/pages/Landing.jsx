@@ -19,7 +19,7 @@ const COURSES = [
   {
     id: 'ai-learning',
     name: 'AI Learning',
-    tagline: 'Master 5 AI tools with hands-on modules',
+    tagline: 'Master AI tools with hands-on modules',
     emoji: '🤖',
     gradient: 'from-indigo-600 to-violet-600',
     coursePath: '/learn'
@@ -169,7 +169,7 @@ export const Landing = () => {
                   <span className="text-emerald-600"> — Free</span>
                 </h2>
                 <p className="text-slate-600 mb-4">
-                  Learn 5 real-world AI tools through hands-on modules. From writing your first ChatGPT prompt to creating designs in Canva with AI.
+                  Learn real-world AI tools through hands-on modules. From writing your first ChatGPT prompt to creating designs in Canva with AI.
                 </p>
                 <Link to="/learn">
                   <Button className="bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-semibold px-6 py-2.5 rounded-full shadow-md hover:shadow-lg transition-all">
