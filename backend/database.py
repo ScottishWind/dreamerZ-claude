@@ -132,6 +132,7 @@ async def create_indexes():
     await db.lessons.create_index("course_id")
     await db.lessons.create_index("section_id")
     await db.lessons.create_index([("course_id", 1), ("sort_order", 1)])
+    await db.lessons.create_index([("course_id", 1), ("section_id", 1), ("sort_order", 1)])
     await db.lesson_contents.create_index(
         [("lesson_id", 1), ("language", 1)], unique=True
     )

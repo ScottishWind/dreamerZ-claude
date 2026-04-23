@@ -59,10 +59,30 @@ export const ToolJourney = () => {
             throw new Error(data.detail || data.message || 'Failed to load content.');
           }
         }
+
         const data = await response.json();
-        setTool(data);
+
+        // If data has sections (new LMS structure), flatten to modules for JourneyPlayer compatibility
+        if (data.sections && Array.isArray(data.sections)) {
+          const flattenedModules = [];
+          data.sections.forEach((section, sIdx) => {
+            if (section.lessons && Array.isArray(section.lessons)) {
+              section.lessons.forEach((lesson) => {
+                flattenedModules.push({
+                  ...lesson,
+                  sectionTitle: section.title,
+                  sectionOrder: section.sort_order || sIdx,
+                });
+              });
+            }
+          });
+          setTool({ ...data, modules: flattenedModules });
+        } else {
+          // Legacy structure or already flat
+          setTool(data);
+        }
       } catch (err) {
-        setError(err.message || 'Failed to load tool content.');
+        setError(err.message);
       } finally {
         setIsLoading(false);
       }

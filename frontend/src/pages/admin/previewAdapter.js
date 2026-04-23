@@ -29,7 +29,7 @@ export const draftToLearnerTool = (draft) => {
     xpReward: 0, // Preview mode — no XP
   };
 
-  // Flatten modules → lessons into a single modules array
+  // Flatten modules → lessons into a single modules array with section metadata
   const modules = [];
   let lessonIdx = 0;
 
@@ -58,6 +58,9 @@ export const draftToLearnerTool = (draft) => {
         quiz: {
           questions: quizQuestions,
         },
+        // Add section metadata for UI grouping
+        sectionTitle: module.title,
+        sectionOrder: module.order || mIdx,
         // Track original module/lesson for debugging
         _originalModuleId: module.id,
         _originalLessonId: lesson.id,

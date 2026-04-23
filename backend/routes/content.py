@@ -236,14 +236,17 @@ async def get_published_course(
     ).to_list(500)
     assess_map = {a["lesson_id"]: a for a in assessments}
 
-    # Assemble: convert LMS structure → tool-like flat module list for the player
-    modules = []
+    # Assemble: convert LMS structure → nested sections→lessons tree for the player
+    sections_map = {s["id"]: s for s in sections}
+    lessons_by_section = {s["id"]: [] for s in sections}
+
     for lesson in lessons:
         lid = lesson["id"]
         lc = content_map.get(lid) or en_map.get(lid, {})
         quiz = assess_map.get(lid)
+        section_id = lesson.get("section_id")
 
-        module = {
+        lesson_dict = {
             "id": lid,
             "tool_id": course_id,
             "title": lesson.get("title", ""),
@@ -262,12 +265,22 @@ async def get_published_course(
             "quiz": quiz if quiz else {},
             "media_assets": [],
         }
-        modules.append(module)
+
+        if section_id and section_id in lessons_by_section:
+            lessons_by_section[section_id].append(lesson_dict)
+
+    # Build sections with their lessons, sorted by sort_order
+    sections_with_lessons = []
+    for section in sections:
+        sections_with_lessons.append({
+            **section,
+            "lessons": sorted(lessons_by_section.get(section["id"], []), key=lambda l: l.get("sort_order", 0)),
+        })
 
     return {
         **course,
         "id": course_id,
-        "modules": modules,
+        "sections": sections_with_lessons,
     }
 
 
