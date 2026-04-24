@@ -101,7 +101,7 @@ const ValidationBadge = ({ validation }) => {
 };
 
 // ── Main component ───────────────────────────────────────
-export const CourseCreatorTab = ({ token }) => {
+export const CourseCreatorTab = ({ token, onPublishSuccess }) => {
   const [step, setStep] = useState('config');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -498,6 +498,10 @@ export const CourseCreatorTab = ({ token }) => {
         `Course published! Created ${result.lessons} lessons and ${result.assessments} quizzes.`,
       );
       setStep('published');
+      // Notify parent (ContentManager) to navigate back to course list
+      if (onPublishSuccess) {
+        setTimeout(() => onPublishSuccess(result), 1500);
+      }
     } catch (e) {
       setError(e.message);
     } finally {

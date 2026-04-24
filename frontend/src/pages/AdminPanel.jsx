@@ -9,14 +9,13 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { LANGUAGES } from '../hooks/useLanguage';
-import { CourseCreatorTab } from './admin/CourseCreatorTab';
+import { ContentManager } from './admin/ContentManager';
 
 const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
 
 const TABS = [
   { id: 'users', label: 'Users', icon: Users },
   { id: 'content', label: 'Content', icon: BookOpen },
-  { id: 'course-creator', label: 'AI Creator', icon: Sparkles },
   { id: 'media', label: 'Media', icon: Upload },
   { id: 'stats', label: 'Overview', icon: BarChart3 },
 ];
@@ -1165,8 +1164,7 @@ export const AdminPanel = () => {
 
         {/* Tab content */}
         {activeTab === 'users' && <UsersTab token={token} />}
-        {activeTab === 'content' && <ContentTab token={token} />}
-        {activeTab === 'course-creator' && <CourseCreatorTab token={token} />}
+        {activeTab === 'content' && <ContentManager token={token} />}
         {activeTab === 'media' && <MediaTab token={token} />}
         {activeTab === 'stats' && <StatsTab token={token} />}
       </div>

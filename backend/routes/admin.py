@@ -93,6 +93,29 @@ class TranslateRequest(BaseModel):
     target_language: str = "bn"
 
 
+class SectionCreate(BaseModel):
+    title: str
+    description: Optional[str] = ""
+
+
+class SectionUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    sort_order: Optional[int] = None
+
+
+class LessonCreateAdmin(BaseModel):
+    title: str
+    level: str = "beginner"
+    estimated_minutes: int = 10
+    description: Optional[str] = ""
+
+
+class LessonRegenerateRequest(BaseModel):
+    instructions: Optional[str] = None
+    source_text: Optional[str] = None
+
+
 # ══════════════════════════════════════════════════════════
 # CATEGORIES
 # ══════════════════════════════════════════════════════════
@@ -369,6 +392,103 @@ async def update_course(course_id: str, update: CourseUpdate):
     return {"detail": f"Course '{course_id}' updated", **update_data}
 
 
+@router.delete("/courses/{course_id}")
+async def delete_course(course_id: str):
+    """Cascade-delete a course and all its sections, lessons, contents, assessments."""
+    existing = await db.courses.find_one({"id": course_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    # Find all lessons to delete their contents/assessments
+    lessons = await db.lessons.find({"course_id": course_id}, {"id": 1}).to_list(1000)
+    lesson_ids = [l["id"] for l in lessons]
+
+    if lesson_ids:
+        await db.lesson_contents.delete_many({"lesson_id": {"$in": lesson_ids}})
+        await db.assessments.delete_many({"lesson_id": {"$in": lesson_ids}})
+
+    await db.lessons.delete_many({"course_id": course_id})
+    await db.sections.delete_many({"course_id": course_id})
+    await db.courses.delete_one({"id": course_id})
+
+    return {"detail": f"Course '{course_id}' and all content deleted"}
+
+
+# ══════════════════════════════════════════════════════════
+# LMS — SECTIONS (MODULES)
+# ══════════════════════════════════════════════════════════
+
+@router.get("/courses/{course_id}/sections")
+async def list_sections(course_id: str):
+    """List all sections for a course, ordered by sort_order."""
+    sections = await db.sections.find(
+        {"course_id": course_id}, {"_id": 0}
+    ).sort("sort_order", 1).to_list(100)
+    return sections
+
+
+@router.post("/courses/{course_id}/sections")
+async def create_section(course_id: str, payload: SectionCreate):
+    """Create a new section under a course."""
+    course = await db.courses.find_one({"id": course_id})
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    # Determine next sort_order
+    existing_count = await db.sections.count_documents({"course_id": course_id})
+    sort_order = existing_count + 1
+
+    import uuid
+    section_id = f"{course_id}-m{uuid.uuid4().hex[:6]}"
+    now = datetime.now(timezone.utc).isoformat()
+
+    doc = {
+        "id": section_id,
+        "course_id": course_id,
+        "title": payload.title,
+        "description": payload.description or "",
+        "sort_order": sort_order,
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.sections.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@router.put("/sections/{section_id}")
+async def update_section(section_id: str, update: SectionUpdate):
+    existing = await db.sections.find_one({"id": section_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Section not found")
+    update_data = {k: v for k, v in update.dict().items() if v is not None}
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.sections.update_one({"id": section_id}, {"$set": update_data})
+    return {"detail": f"Section '{section_id}' updated", **update_data}
+
+
+@router.delete("/sections/{section_id}")
+async def delete_section(section_id: str):
+    """Cascade-delete a section and all its lessons + contents + assessments."""
+    existing = await db.sections.find_one({"id": section_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Section not found")
+
+    lessons = await db.lessons.find({"section_id": section_id}, {"id": 1}).to_list(500)
+    lesson_ids = [l["id"] for l in lessons]
+
+    if lesson_ids:
+        await db.lesson_contents.delete_many({"lesson_id": {"$in": lesson_ids}})
+        await db.assessments.delete_many({"lesson_id": {"$in": lesson_ids}})
+
+    await db.lessons.delete_many({"section_id": section_id})
+    await db.sections.delete_one({"id": section_id})
+
+    return {"detail": f"Section '{section_id}' and all lessons deleted"}
+
+
 # ══════════════════════════════════════════════════════════
 # LMS — LESSONS
 # ══════════════════════════════════════════════════════════
@@ -431,6 +551,141 @@ async def update_lesson(lesson_id: str, update: LessonUpdate):
     update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
     await db.lessons.update_one({"id": lesson_id}, {"$set": update_data})
     return {"detail": f"Lesson '{lesson_id}' updated", **update_data}
+
+
+@router.post("/sections/{section_id}/lessons")
+async def create_lesson(section_id: str, payload: LessonCreateAdmin):
+    """Create an empty lesson under a section (content to be filled later via edit or regenerate)."""
+    section = await db.sections.find_one({"id": section_id})
+    if not section:
+        raise HTTPException(status_code=404, detail="Section not found")
+
+    import uuid
+    lesson_id = f"{section_id}-l{uuid.uuid4().hex[:6]}"
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Determine next sort_order within the section
+    existing_count = await db.lessons.count_documents({"section_id": section_id})
+    sort_order = existing_count + 1
+
+    doc = {
+        "id": lesson_id,
+        "course_id": section["course_id"],
+        "section_id": section_id,
+        "title": payload.title,
+        "level": payload.level,
+        "estimated_minutes": payload.estimated_minutes,
+        "description": payload.description or "",
+        "sort_order": sort_order,
+        "status": "draft",
+        "available_languages": ["en"],
+        "media_asset_ids": [],
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.lessons.insert_one(doc)
+
+    # Create empty English content row
+    await db.lesson_contents.insert_one({
+        "lesson_id": lesson_id,
+        "language": "en",
+        "explanation": "",
+        "example": "",
+        "activity": "",
+        "created_at": now,
+        "updated_at": now,
+    })
+
+    doc.pop("_id", None)
+    return doc
+
+
+@router.delete("/lessons/{lesson_id}")
+async def delete_lesson(lesson_id: str):
+    """Cascade-delete a lesson and its content + assessment."""
+    existing = await db.lessons.find_one({"id": lesson_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+
+    await db.lesson_contents.delete_many({"lesson_id": lesson_id})
+    await db.assessments.delete_many({"lesson_id": lesson_id})
+    await db.lessons.delete_one({"id": lesson_id})
+
+    return {"detail": f"Lesson '{lesson_id}' deleted"}
+
+
+@router.post("/lessons/{lesson_id}/regenerate")
+async def regenerate_lesson(lesson_id: str, payload: LessonRegenerateRequest):
+    """Regenerate lesson content using AI with optional instructions and source text."""
+    from services import course_generator
+
+    lesson = await db.lessons.find_one({"id": lesson_id}, {"_id": 0})
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+
+    course = await db.courses.find_one({"id": lesson["course_id"]}, {"_id": 0})
+    tone = course.get("tone", "professional") if course else "professional"
+
+    try:
+        updated = await course_generator.regenerate_lesson_for_published(
+            lesson=lesson,
+            source_text=payload.source_text or "",
+            extra_instructions=payload.instructions,
+            tone=tone,
+        )
+        return updated
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        logging.exception("Lesson regeneration failed")
+        raise HTTPException(status_code=500, detail=f"Regeneration failed: {exc}")
+
+
+@router.post("/lessons/{lesson_id}/regenerate-with-docs")
+async def regenerate_lesson_with_docs(
+    lesson_id: str,
+    files: list[UploadFile] = File(default=[]),
+    instructions: str = Form(""),
+):
+    """Regenerate lesson content with uploaded docs as source + optional instructions."""
+    from services import course_generator, document_parser
+
+    lesson = await db.lessons.find_one({"id": lesson_id}, {"_id": 0})
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+
+    # Parse all uploaded files and concatenate
+    source_text = ""
+    for f in files:
+        data = await f.read()
+        if not data:
+            continue
+        try:
+            parsed = document_parser.parse_document(
+                data=data,
+                filename=f.filename or "upload",
+                content_type=f.content_type,
+            )
+            source_text += f"=== {f.filename} ===\n\n{parsed.get('raw_text', '')}\n\n---\n\n"
+        except Exception as exc:  # noqa: BLE001
+            logging.warning(f"Failed to parse {f.filename}: {exc}")
+
+    course = await db.courses.find_one({"id": lesson["course_id"]}, {"_id": 0})
+    tone = course.get("tone", "professional") if course else "professional"
+
+    try:
+        updated = await course_generator.regenerate_lesson_for_published(
+            lesson=lesson,
+            source_text=source_text,
+            extra_instructions=instructions or None,
+            tone=tone,
+        )
+        return updated
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        logging.exception("Lesson regeneration with docs failed")
+        raise HTTPException(status_code=500, detail=f"Regeneration failed: {exc}")
 
 
 # ── Lesson Content (per-language) ────────────────────────

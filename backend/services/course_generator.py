@@ -462,6 +462,96 @@ async def generate_lesson_content(
     )
 
 
+async def regenerate_lesson_for_published(
+    lesson: dict,
+    source_text: str,
+    extra_instructions: Optional[str],
+    tone: str,
+) -> dict:
+    """Regenerate content + quiz for an already-published lesson and update DB in place.
+
+    This updates lesson_contents (English) and assessments collections directly.
+    """
+    # Build a minimal lesson skeleton for the prompt
+    lesson_skeleton = {
+        "id": lesson["id"],
+        "title": lesson.get("title", ""),
+        "description": lesson.get("description", ""),
+        "level": lesson.get("level", "beginner"),
+        "minutes": lesson.get("estimated_minutes", 10),
+    }
+
+    generated = await generate_lesson_content(
+        lesson=lesson_skeleton,
+        source_text=source_text or lesson.get("title", ""),
+        tone=tone,
+        extra_instructions=extra_instructions,
+    )
+
+    lesson_id = lesson["id"]
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Update English lesson content
+    await db.lesson_contents.update_one(
+        {"lesson_id": lesson_id, "language": "en"},
+        {"$set": {
+            "explanation": generated.get("explanation", ""),
+            "example": generated.get("example", ""),
+            "activity": generated.get("activity", ""),
+            "updated_at": now,
+        }},
+        upsert=True,
+    )
+
+    # Update assessment/quiz if generated
+    quiz = generated.get("quiz") or {}
+    questions = quiz.get("questions") or []
+    if questions:
+        # Normalize quiz question shape (use correct_index → correctAnswer for frontend)
+        normalized_questions = [
+            {
+                "question": q.get("question", ""),
+                "options": q.get("options", []),
+                "correctAnswer": q.get("correct_index", 0),
+                "explanation": q.get("explanation", ""),
+                "type": "mcq",
+            }
+            for q in questions
+        ]
+        await db.assessments.update_one(
+            {"lesson_id": lesson_id},
+            {
+                "$set": {
+                    "questions": normalized_questions,
+                    "updated_at": now,
+                },
+                "$setOnInsert": {
+                    "id": f"{lesson_id}-quiz",
+                    "lesson_id": lesson_id,
+                    "course_id": lesson.get("course_id"),
+                    "created_at": now,
+                },
+            },
+            upsert=True,
+        )
+
+    # Mark lesson as generated
+    await db.lessons.update_one(
+        {"id": lesson_id},
+        {"$set": {"status": "generated", "updated_at": now}},
+    )
+
+    return {
+        "lesson_id": lesson_id,
+        "content": {
+            "explanation": generated.get("explanation", ""),
+            "example": generated.get("example", ""),
+            "activity": generated.get("activity", ""),
+        },
+        "quiz_questions": len(questions),
+    }
+
+
 async def critique_lesson_content(
     generated_content: dict,
     source_text: str,
