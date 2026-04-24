@@ -14,6 +14,7 @@ import { Button } from './ui/button';
 import { Progress } from './ui/progress';
 import { SafetyBanner } from './SafetyBanner';
 import { CoursePreviewVideo } from './CoursePreviewVideo';
+import { MarkdownContent } from './MarkdownContent';
 
 const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
 
@@ -502,9 +503,9 @@ export const JourneyPlayer = ({
                                 <p className="text-sm text-slate-500 m-0">Read through and understand</p>
                               </div>
                             </div>
-                            <div className="text-slate-600 leading-relaxed whitespace-pre-line text-[15px]">
+                            <MarkdownContent variant="light">
                               {activeModule.content.explanation}
-                            </div>
+                            </MarkdownContent>
                           </motion.div>
                         )}
 
@@ -524,8 +525,10 @@ export const JourneyPlayer = ({
                                 <p className="text-sm text-slate-500">Real-world example</p>
                               </div>
                             </div>
-                            <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-6 text-slate-200 leading-relaxed whitespace-pre-line text-[15px]">
-                              {activeModule.content.example}
+                            <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-6">
+                              <MarkdownContent variant="dark">
+                                {activeModule.content.example}
+                              </MarkdownContent>
                             </div>
                           </motion.div>
                         )}
@@ -546,8 +549,10 @@ export const JourneyPlayer = ({
                                 <p className="text-sm text-slate-500">Hands-on practice</p>
                               </div>
                             </div>
-                            <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 rounded-2xl p-6 text-slate-700 leading-relaxed whitespace-pre-line text-[15px]">
-                              {activeModule.content.activity}
+                            <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 rounded-2xl p-6">
+                              <MarkdownContent variant="emerald">
+                                {activeModule.content.activity}
+                              </MarkdownContent>
                             </div>
                           </motion.div>
                         )}
