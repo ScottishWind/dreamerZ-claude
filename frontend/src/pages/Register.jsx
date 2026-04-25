@@ -4,7 +4,7 @@ import { Button } from '../components/ui/button';
 import { SEO } from '../components/SEO';
 import { useAuth } from '../hooks/useAuth';
 import { LANGUAGES } from '../hooks/useLanguage';
-import { Lock, Mail, User, Globe } from 'lucide-react';
+import { Lock, Mail, User, Globe, Eye, EyeOff } from 'lucide-react';
 
 export const Register = () => {
   const { register } = useAuth();
@@ -16,6 +16,8 @@ export const Register = () => {
   const [preferredLanguage, setPreferredLanguage] = useState('en');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -98,13 +100,21 @@ export const Register = () => {
               <div className="mt-2 relative rounded-xl border border-slate-200 bg-slate-50 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary">
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full rounded-xl border-0 bg-transparent py-3 pl-12 pr-4 text-slate-900 outline-none"
+                  className="w-full rounded-xl border-0 bg-transparent py-3 pl-12 pr-12 text-slate-900 outline-none"
                   placeholder="Create a password"
                   required
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
               </div>
             </label>
 
@@ -113,13 +123,21 @@ export const Register = () => {
               <div className="mt-2 relative rounded-xl border border-slate-200 bg-slate-50 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary">
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
-                  type="password"
+                  type={showConfirmPassword ? 'text' : 'password'}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full rounded-xl border-0 bg-transparent py-3 pl-12 pr-4 text-slate-900 outline-none"
+                  className="w-full rounded-xl border-0 bg-transparent py-3 pl-12 pr-12 text-slate-900 outline-none"
                   placeholder="Confirm your password"
                   required
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword((v) => !v)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  tabIndex={-1}
+                >
+                  {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
               </div>
             </label>
 
