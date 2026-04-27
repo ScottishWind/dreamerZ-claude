@@ -3,6 +3,7 @@ import {
   FileText, HelpCircle, Sparkles, Paperclip, Save, RefreshCw,
   Upload, X, Plus, Trash2, AlertTriangle, CheckCircle2, Wand2,
 } from 'lucide-react';
+import { QuizEditor } from './QuizEditor';
 
 const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
 
@@ -383,47 +384,20 @@ export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted
 
       {/* Quiz tab */}
       {activeTab === 'quiz' && (
-        <div className="space-y-3">
-          {quizQuestions.length === 0 ? (
-            <div className="text-center text-slate-400 py-8 bg-slate-50 rounded-lg">
-              No quiz questions yet. Use AI Actions tab to generate them, or regenerate the lesson.
-            </div>
-          ) : (
-            quizQuestions.map((q, idx) => (
-              <div key={idx} className="bg-white border border-slate-200 rounded-lg p-4 space-y-2">
-                <div className="flex items-start justify-between gap-2">
-                  <span className="text-xs font-semibold text-slate-500">Question {idx + 1}</span>
-                </div>
-                <p className="text-sm font-medium text-slate-800">{q.question}</p>
-                <div className="space-y-1">
-                  {(q.options || []).map((opt, oIdx) => (
-                    <div
-                      key={oIdx}
-                      className={`text-xs px-3 py-2 rounded-lg ${
-                        oIdx === (q.correctAnswer ?? q.correct_index)
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : 'bg-slate-50 text-slate-600'
-                      }`}
-                    >
-                      {String.fromCharCode(65 + oIdx)}. {opt}
-                      {oIdx === (q.correctAnswer ?? q.correct_index) && (
-                        <CheckCircle2 className="w-3.5 h-3.5 inline-block ml-2" />
-                      )}
-                    </div>
-                  ))}
-                </div>
-                {q.explanation && (
-                  <p className="text-xs text-slate-500 italic pt-1">
-                    💡 {q.explanation}
-                  </p>
-                )}
-              </div>
-            ))
-          )}
-          <p className="text-xs text-slate-400 italic">
-            Quiz editing coming soon. For now, regenerate the lesson to update quiz questions.
-          </p>
-        </div>
+        <QuizEditor
+          lessonId={lessonId}
+          courseId={lesson.course_id}
+          initialQuestions={quizQuestions}
+          passingScore={lesson.assessment?.passing_score || 70}
+          token={token}
+          onSaved={(saved) => {
+            setQuizQuestions(saved?.questions || []);
+            setLesson((l) => (l ? { ...l, assessment: saved } : l));
+            showSuccess('Quiz saved');
+            onLessonUpdated?.(lessonId);
+          }}
+          onError={(msg) => setError(msg)}
+        />
       )}
 
       {/* AI Actions tab */}

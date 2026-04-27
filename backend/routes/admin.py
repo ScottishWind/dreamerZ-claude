@@ -116,6 +116,32 @@ class LessonRegenerateRequest(BaseModel):
     source_text: Optional[str] = None
 
 
+class QuizQuestionPayload(BaseModel):
+    """One quiz question, supporting multiple types.
+
+    type:
+      - "mcq"          : single-answer multiple choice (correctAnswer = int index)
+      - "multi-select" : checkbox multiple choice (correctAnswers = [int, ...])
+      - "true-false"   : correctAnswer = bool
+      - "short-answer" : descriptive (correctAnswer = string)
+    """
+    id: Optional[str] = None
+    type: str = "mcq"
+    question: str = ""
+    options: Optional[list[str]] = None
+    correctAnswer: Optional[object] = None
+    correctAnswers: Optional[list[int]] = None
+    explanation: Optional[str] = ""
+    image_asset_id: Optional[str] = None
+    image_url: Optional[str] = None
+
+
+class QuizUpdate(BaseModel):
+    questions: list[QuizQuestionPayload] = []
+    passing_score: Optional[int] = None
+    title: Optional[str] = None
+
+
 # ══════════════════════════════════════════════════════════
 # CATEGORIES
 # ══════════════════════════════════════════════════════════
@@ -725,6 +751,81 @@ async def update_lesson_content(lesson_id: str, language: str, update: LessonCon
     )
 
     return {"detail": f"Content updated for lesson '{lesson_id}' ({language})"}
+
+
+@router.put("/lessons/{lesson_id}/quiz")
+async def update_lesson_quiz(lesson_id: str, payload: QuizUpdate):
+    """Replace the quiz questions for a lesson. Upserts the assessment doc.
+
+    Supports question types: mcq, multi-select, true-false, short-answer.
+    Each question may include an optional `image_asset_id` and `image_url`.
+    """
+    lesson = await db.lessons.find_one({"id": lesson_id})
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+
+    now = datetime.now(timezone.utc).isoformat()
+    assess_id = f"assess-{lesson_id}"
+
+    # Normalise questions, ensure each has a stable id
+    questions: list[dict] = []
+    for idx, q in enumerate(payload.questions, start=1):
+        q_dict = q.dict(exclude_none=False)
+        if not q_dict.get("id"):
+            q_dict["id"] = f"{lesson_id}-q{idx}"
+        # Drop fields irrelevant to the question type to keep docs clean
+        qtype = q_dict.get("type") or "mcq"
+        if qtype == "mcq":
+            q_dict.pop("correctAnswers", None)
+        elif qtype == "multi-select":
+            q_dict.pop("correctAnswer", None)
+        elif qtype in {"true-false", "short-answer"}:
+            q_dict.pop("options", None)
+            q_dict.pop("correctAnswers", None)
+        questions.append(q_dict)
+
+    set_fields = {
+        "questions": questions,
+        "total_points": len(questions) * 10,
+        "updated_at": now,
+    }
+    if payload.passing_score is not None:
+        set_fields["passing_score"] = max(0, min(100, payload.passing_score))
+    if payload.title is not None:
+        set_fields["title"] = payload.title
+
+    # Insert defaults only when the assessment doesn't yet exist
+    set_on_insert = {
+        "id": assess_id,
+        "type": "quiz",
+        "lesson_id": lesson_id,
+        "course_id": lesson.get("course_id"),
+        "language": "en",
+        "title": payload.title or f"Quiz — {lesson.get('title', '')}",
+        "passing_score": payload.passing_score if payload.passing_score is not None else 70,
+        "max_attempts": 3,
+        "shuffle_questions": False,
+        "shuffle_options": True,
+        "feedback": {},
+        "locale_feedback": {},
+        "hints": [],
+        "status": "published",
+        "version": 1,
+        "created_at": now,
+    }
+    # Avoid conflict between $set and $setOnInsert on common keys
+    for k in list(set_on_insert.keys()):
+        if k in set_fields:
+            set_on_insert.pop(k)
+
+    await db.assessments.update_one(
+        {"id": assess_id},
+        {"$set": set_fields, "$setOnInsert": set_on_insert},
+        upsert=True,
+    )
+
+    saved = await db.assessments.find_one({"id": assess_id}, {"_id": 0})
+    return saved or {"detail": "Quiz updated", **set_fields}
 
 
 # ══════════════════════════════════════════════════════════
