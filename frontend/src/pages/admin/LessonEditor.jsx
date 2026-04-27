@@ -39,8 +39,8 @@ const adminUpload = async (path, token, formData) => {
 const TABS = [
   { id: 'content', label: 'Content', icon: FileText },
   { id: 'quiz', label: 'Quiz', icon: HelpCircle },
-  { id: 'ai', label: 'AI Actions', icon: Sparkles },
   { id: 'media', label: 'Media', icon: Paperclip },
+  { id: 'ai', label: 'AI Actions', icon: Sparkles },
 ];
 
 export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted }) => {
