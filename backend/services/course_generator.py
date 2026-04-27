@@ -417,8 +417,8 @@ async def generate_blueprint(
     user_prompt = _blueprint_user_prompt(
         source_text=source_text,
         tone=tone,
-        module_count=max(2, min(module_count, 12)),
-        lessons_per_module=max(2, min(lessons_per_module, 8)),
+        module_count=max(1, min(module_count, 12)),
+        lessons_per_module=max(1, min(lessons_per_module, 8)),
         course_title_hint=course_title_hint,
         instructions=instructions,
     )
