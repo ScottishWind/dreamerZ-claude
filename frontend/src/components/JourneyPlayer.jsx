@@ -5,7 +5,7 @@ import {
   BookOpen, Lightbulb, Rocket, Play, Award,
   Clock, Sparkles, ArrowLeft, Home, Volume2,
   Languages, Mic, MessageCircle, Trophy, AlertTriangle, Calendar,
-  FileText, Download, File, Paperclip, HelpCircle
+  FileText, Download, Paperclip, HelpCircle
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Quiz } from './Quiz';
@@ -22,95 +22,83 @@ const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
 const MediaAttachments = ({ assets, variant = 'inline' }) => {
   if (!assets || assets.length === 0) return null;
 
-  const images = assets.filter((a) => a.type === 'image');
-  const pdfs = assets.filter((a) => a.mime_type === 'application/pdf');
-  const docs = assets.filter(
-    (a) => a.type !== 'image' && a.mime_type !== 'application/pdf'
-  );
-
   const mediaUrl = (id) => `${API_BASE}/api/content/media/${id}`;
 
-  return (
-    <div className={variant === 'inline' ? 'mt-6 pt-6 border-t border-slate-100' : ''}>
-      {variant === 'inline' && (
-        <h4 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
-          <FileText className="w-4 h-4 text-slate-500" />
-          Lesson Materials
-        </h4>
-      )}
-
-      {/* Inline Images */}
-      {images.length > 0 && (
-        <div className={`grid gap-4 mb-4 ${images.length === 1 ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'}`}>
-          {images.map((img) => (
-            <div key={img.id} className="rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
-              <img
-                src={mediaUrl(img.id)}
-                alt={img.alt_text || img.original_filename}
-                className="w-full h-auto max-h-[500px] object-contain"
-                loading="lazy"
-              />
-              {img.alt_text && (
-                <p className="text-xs text-slate-500 text-center py-2 px-3">{img.alt_text}</p>
+  // Compact list view — mirrors the lesson editor's Media tab styling.
+  if (variant === 'standalone') {
+    return (
+      <div className="space-y-2">
+        {assets.map((asset) => {
+          const isImage = asset.type === 'image';
+          const url = mediaUrl(asset.id);
+          return (
+            <a
+              key={asset.id}
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-3 bg-white border border-slate-200 rounded-lg px-3 py-2 hover:border-primary/40 hover:bg-slate-50 transition-all group"
+            >
+              {isImage ? (
+                <img
+                  src={url}
+                  alt={asset.alt_text || asset.original_filename}
+                  className="w-10 h-10 rounded object-cover flex-shrink-0"
+                  loading="lazy"
+                />
+              ) : (
+                <FileText className="w-5 h-5 text-slate-400 flex-shrink-0" />
               )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Embedded PDFs */}
-      {pdfs.map((pdf) => (
-        <div key={pdf.id} className="mb-4 rounded-xl overflow-hidden border border-slate-200">
-          <div className="bg-slate-50 px-4 py-2 flex items-center justify-between border-b border-slate-200">
-            <span className="text-sm font-medium text-slate-700 flex items-center gap-2">
-              <FileText className="w-4 h-4 text-red-500" />
-              {pdf.original_filename}
-            </span>
-            <a
-              href={mediaUrl(pdf.id)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-primary hover:underline flex items-center gap-1"
-            >
-              <Download className="w-3 h-3" /> Download
-            </a>
-          </div>
-          <iframe
-            src={mediaUrl(pdf.id)}
-            title={pdf.original_filename}
-            className="w-full border-0"
-            style={{ height: '600px' }}
-          />
-        </div>
-      ))}
-
-      {/* Download Cards for other documents */}
-      {docs.length > 0 && (
-        <div className="space-y-2">
-          {docs.map((doc) => (
-            <a
-              key={doc.id}
-              href={mediaUrl(doc.id)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 hover:border-primary/30 transition-all group"
-            >
-              <div className="w-10 h-10 rounded-lg bg-violet-100 flex items-center justify-center flex-shrink-0">
-                <File className="w-5 h-5 text-violet-600" />
-              </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-800 truncate group-hover:text-primary transition-colors">
-                  {doc.original_filename}
+                <p className="text-sm font-medium text-slate-700 truncate group-hover:text-primary transition-colors">
+                  {asset.original_filename}
                 </p>
                 <p className="text-xs text-slate-400">
-                  {doc.file_extension?.toUpperCase()} · {doc.file_size_bytes ? `${(doc.file_size_bytes / 1024).toFixed(0)} KB` : ''}
+                  {asset.file_extension?.toUpperCase()}
+                  {asset.file_size_bytes ? ` · ${(asset.file_size_bytes / 1024).toFixed(0)} KB` : ''}
                 </p>
               </div>
               <Download className="w-4 h-4 text-slate-400 group-hover:text-primary flex-shrink-0" />
             </a>
-          ))}
-        </div>
-      )}
+          );
+        })}
+      </div>
+    );
+  }
+
+  // Legacy inline view (kept for any other callers).
+  return (
+    <div className="mt-6 pt-6 border-t border-slate-100">
+      <h4 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
+        <FileText className="w-4 h-4 text-slate-500" />
+        Lesson Materials
+      </h4>
+      <div className="space-y-2">
+        {assets.map((asset) => {
+          const isImage = asset.type === 'image';
+          const url = mediaUrl(asset.id);
+          return (
+            <a
+              key={asset.id}
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-3 bg-white border border-slate-200 rounded-lg px-3 py-2 hover:border-primary/40 hover:bg-slate-50 transition-all group"
+            >
+              {isImage ? (
+                <img src={url} alt={asset.alt_text || asset.original_filename} className="w-10 h-10 rounded object-cover" />
+              ) : (
+                <FileText className="w-5 h-5 text-slate-400" />
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-slate-700 truncate">{asset.original_filename}</p>
+                <p className="text-xs text-slate-400">{asset.file_extension?.toUpperCase()}</p>
+              </div>
+              <Download className="w-4 h-4 text-slate-400 group-hover:text-primary flex-shrink-0" />
+            </a>
+          );
+        })}
+      </div>
     </div>
   );
 };
