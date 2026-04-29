@@ -14,7 +14,7 @@ import { ContentManager } from './admin/ContentManager';
 const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
 
 const TABS = [
-  { id: 'content', label: 'Content', icon: BookOpen },
+  { id: 'content', label: 'Course Manager', icon: BookOpen },
   { id: 'users', label: 'Users', icon: Users },
   { id: 'stats', label: 'Overview', icon: BarChart3 },
 ];
