@@ -14,9 +14,8 @@ import { ContentManager } from './admin/ContentManager';
 const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
 
 const TABS = [
-  { id: 'users', label: 'Users', icon: Users },
   { id: 'content', label: 'Content', icon: BookOpen },
-  { id: 'media', label: 'Media', icon: Upload },
+  { id: 'users', label: 'Users', icon: Users },
   { id: 'stats', label: 'Overview', icon: BarChart3 },
 ];
 
@@ -1111,7 +1110,7 @@ const StatsTab = ({ token }) => {
 export const AdminPanel = () => {
   const { user, token, isAuthenticated, isLoaded } = useAuth();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('users');
+  const [activeTab, setActiveTab] = useState('content');
 
   useEffect(() => {
     if (isLoaded && (!isAuthenticated || !user?.isAdmin)) {
