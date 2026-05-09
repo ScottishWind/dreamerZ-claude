@@ -33,12 +33,10 @@ services:
       - key: PYTHON_VERSION
         value: "3.11.6"
 
-  # ── Frontend (React static) ── Free tier ──
+  # ── Frontend (React static) ── Free, served via Render's global CDN ──
   - type: web
     runtime: static
     name: dreamerz-frontend
-    region: oregon
-    plan: free
     rootDir: frontend
     buildCommand: CI=false yarn install --no-frozen-lockfile && yarn build
     staticPublishPath: build
