@@ -12,6 +12,8 @@ import { Parents } from "./pages/Parents";
 import { Account } from "./pages/Account";
 import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
+import { ForgotPassword } from "./pages/ForgotPassword";
+import { ResetPassword } from "./pages/ResetPassword";
 import { AdminPanel } from "./pages/AdminPanel";
 import { AuthProvider } from "./hooks/useAuth";
 import { LanguageProvider } from "./hooks/useLanguage";
@@ -41,6 +43,8 @@ function App() {
                   <Route path="/account" element={<Account />} />
                   <Route path="/login" element={<Login />} />
                   <Route path="/register" element={<Register />} />
+                  <Route path="/forgot-password" element={<ForgotPassword />} />
+                  <Route path="/reset-password" element={<ResetPassword />} />
                   <Route path="/admin" element={<AdminPanel />} />
 
                   {/* Backward-compatible redirects */}
