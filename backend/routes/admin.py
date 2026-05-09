@@ -18,7 +18,7 @@ from config import ADMIN_EMAILS
 from database import get_db
 from models.sql_models import (
     User, Course, Module, Lesson, LessonContent, Quiz, QuizQuestion,
-    MediaAsset, Category, Enrollment, PricingPlan, FAQ,
+    MediaAsset, Category, PricingPlan, FAQ, StudentCourseEnrollment,
 )
 from models.user import AdminUserResponse
 from services.auth_service import get_current_admin
@@ -297,8 +297,7 @@ async def delete_user(
     if (user.email or "").lower() in ADMIN_EMAILS:
         raise HTTPException(status_code=403, detail="Cannot delete an admin account")
 
-    # Delete enrollments first, then the user (cascade handles the rest)
-    await session.execute(delete(Enrollment).where(Enrollment.user_id == user.id))
+    # Delete user (cascade handles the rest)
     await session.delete(user)
     await session.commit()
 
@@ -1348,7 +1347,7 @@ async def admin_stats(session: AsyncSession = Depends(get_db)):
     lesson_count = (await session.execute(select(func.count(Lesson.id)))).scalar_one()
     media_count = (await session.execute(select(func.count(MediaAsset.id)))).scalar_one()
     quiz_count = (await session.execute(select(func.count(Quiz.id)))).scalar_one()
-    enrollment_count = (await session.execute(select(func.count(Enrollment.id)))).scalar_one()
+    enrollment_count = (await session.execute(select(func.count(StudentCourseEnrollment.id)))).scalar_one()
     category_count = (await session.execute(select(func.count(Category.id)))).scalar_one()
     draft_count = (await session.execute(
         select(func.count(Course.id)).where(Course.status == "draft")

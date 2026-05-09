@@ -93,6 +93,8 @@ def _serialize_lesson_summary(lesson: Lesson) -> dict:
 
     return {
         "id": lesson.slug,
+        "db_id": lesson.id,
+        "module_db_id": lesson.module_id,
         "tool_id": tool_id,
         "title": lesson.title,
         "description": lesson.description or "",
@@ -131,6 +133,7 @@ def _serialize_tool(course: Course) -> dict:
     """Serialize a Course ORM object as a 'tool' for the frontend."""
     return {
         "id": course.slug,
+        "db_id": course.id,
         "name": course.name,
         "tagline": course.tagline or "",
         "icon": course.icon or "",
@@ -355,6 +358,7 @@ async def get_published_courses(session: AsyncSession = Depends(get_db)):
             lesson_summaries = [_serialize_lesson_summary(les) for les in mod_lessons]
             sections_out.append({
                 "id": mod.slug,
+                "db_id": mod.id,
                 "title": mod.title,
                 "sort_order": mod.sort_order,
                 "lessons": lesson_summaries,
@@ -413,6 +417,8 @@ async def get_published_course(
 
             lesson_dict = {
                 "id": lesson.slug,
+                "db_id": lesson.id,
+                "module_db_id": mod.id,
                 "tool_id": course_id,
                 "title": lesson.title,
                 "level": lesson.level,
@@ -440,6 +446,7 @@ async def get_published_course(
 
         sections_with_lessons.append({
             "id": mod.slug,
+            "db_id": mod.id,
             "title": mod.title,
             "sort_order": mod.sort_order,
             "lessons": mod_lessons,

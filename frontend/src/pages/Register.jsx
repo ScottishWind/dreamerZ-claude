@@ -12,7 +12,6 @@ export const Register = () => {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [preferredLanguage, setPreferredLanguage] = useState('en');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -20,11 +19,6 @@ export const Register = () => {
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError('');
-
-    if (password !== confirmPassword) {
-      setError('Passwords do not match.');
-      return;
-    }
 
     if (password.length < 8) {
       setError('Password must be at least 8 characters long.');
@@ -109,21 +103,6 @@ export const Register = () => {
             </label>
 
             <label className="block text-sm font-medium text-slate-700">
-              Confirm password
-              <div className="mt-2 relative rounded-xl border border-slate-200 bg-slate-50 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary">
-                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full rounded-xl border-0 bg-transparent py-3 pl-12 pr-4 text-slate-900 outline-none"
-                  placeholder="Confirm your password"
-                  required
-                />
-              </div>
-            </label>
-
-            <label className="block text-sm font-medium text-slate-700">
               Preferred language
               <div className="mt-2 relative rounded-xl border border-slate-200 bg-slate-50 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary">
                 <Globe className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -139,7 +118,6 @@ export const Register = () => {
                   ))}
                 </select>
               </div>
-              <p className="mt-1 text-xs text-slate-400">You can change this anytime from the navbar</p>
             </label>
 
             {error && <div className="text-sm text-rose-600">{error}</div>}

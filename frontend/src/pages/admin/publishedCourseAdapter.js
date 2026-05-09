@@ -1,13 +1,13 @@
 /**
  * Adapter to convert a published course (from GET /api/content/courses/{id})
- * into the learner-facing tool/modules shape expected by JourneyPlayer.
+ * into the learner-facing tool/sections shape expected by JourneyPlayer.
  *
  * Published course shape:
  *   course = { id, name, description, sections: [{ id, title, lessons: [...] }] }
  *
  * Learner shape:
  *   tool = { id, name, icon, color, xpReward }
- *   modules[*] = { id, title, level, minutes, content: { explanation, example, activity }, quiz: { questions } }
+ *   sections[*] = { id, title, sort_order, lessons: [{ id, title, level, minutes, content, quiz }] }
  */
 
 export const publishedCourseToLearnerTool = (course) => {
@@ -21,17 +21,13 @@ export const publishedCourseToLearnerTool = (course) => {
     xpReward: 0, // Preview — no XP
   };
 
-  // Flatten sections → lessons into modules array
-  const modules = [];
-  (course.sections || []).forEach((section, sIdx) => {
-    (section.lessons || []).forEach((lesson) => {
-      modules.push({
-        ...lesson,
-        sectionTitle: section.title,
-        sectionOrder: section.sort_order || sIdx,
-      });
-    });
-  });
+  // Pass sections with nested lessons (hierarchical structure)
+  const sections = (course.sections || []).map((section) => ({
+    id: section.id,
+    title: section.title,
+    sort_order: section.sort_order,
+    lessons: section.lessons || [],
+  }));
 
   // Stubbed progress hooks for admin preview
   const isModuleCompleted = () => false;
@@ -41,7 +37,7 @@ export const publishedCourseToLearnerTool = (course) => {
 
   return {
     tool,
-    modules,
+    sections,
     isModuleCompleted,
     isModuleUnlocked,
     getModuleProgress,

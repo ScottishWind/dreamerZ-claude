@@ -4,12 +4,10 @@ from models.content import (
     AIRequest, AIResponse,
     HistoryMessage, RoleplayMessage,
 )
-from models.enrollment import EnrollmentCreate
 
 __all__ = [
     "UserCreate", "UserLogin", "TokenResponse", "UserInfoResponse",
     "StatusCheck", "StatusCheckCreate",
     "AIRequest", "AIResponse",
     "HistoryMessage", "RoleplayMessage",
-    "EnrollmentCreate",
 ]

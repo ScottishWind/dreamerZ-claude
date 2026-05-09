@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ChevronLeft, ChevronRight, ChevronDown, Lock, CheckCircle2,
@@ -15,8 +15,14 @@ import { Progress } from './ui/progress';
 import { SafetyBanner } from './SafetyBanner';
 import { CoursePreviewVideo } from './CoursePreviewVideo';
 import { MarkdownContent } from './MarkdownContent';
+import { useLearningProgress } from '../hooks/useLearningProgress';
 
 const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
+
+const numericId = (value) => {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : null;
+};
 
 // ── Inline Media Attachments Component ─────────────────
 const MediaAttachments = ({ assets, variant = 'inline' }) => {
@@ -107,6 +113,7 @@ export const JourneyPlayer = ({
   tool,
   course: courseProp,
   modules,
+  sections,
   isModuleCompleted,
   isModuleUnlocked,
   getModuleProgress,
@@ -116,23 +123,41 @@ export const JourneyPlayer = ({
   previewMode = false,
 }) => {
   const course = courseProp || tool;
+  const { startLesson, sendLessonHeartbeat, completeLesson, startAssessment, submitAssessment, getAttemptsCount } = useLearningProgress();
+  const heartbeatIntervalRef = useRef(null);
 
-  // Group lessons by their module (sectionTitle or week)
-  const moduleGroups = useMemo(() => {
-    const groups = [];
-    let currentGroup = null;
+  // Support both legacy flat modules and new hierarchical sections structure
+  // If sections are provided, use them; otherwise flatten modules for backward compatibility
+  const sectionsData = useMemo(() => {
+    if (sections && Array.isArray(sections) && sections.length > 0) {
+      return sections;
+    }
 
-    modules.forEach((mod, index) => {
-      const groupKey = mod.sectionTitle || (mod.week ? `Week ${mod.week}` : null);
-
-      if (groupKey && groupKey !== currentGroup?.title) {
-        currentGroup = { title: groupKey, startIndex: index };
-        groups.push(currentGroup);
+    // Legacy: group flat modules by sectionTitle
+    const byTitle = new Map();
+    (modules || []).forEach((mod, index) => {
+      const title = mod.sectionTitle || 'Lessons';
+      const order = mod.sectionOrder ?? 0;
+      let group = byTitle.get(title);
+      if (!group) {
+        group = { id: title, title, order, lessons: [] };
+        byTitle.set(title, group);
       }
+      group.lessons.push({ ...mod, originalIndex: index });
     });
+    return Array.from(byTitle.values()).sort((a, b) => a.order - b.order);
+  }, [modules, sections]);
 
-    return groups;
-  }, [modules]);
+  // Flatten all lessons for active module tracking
+  const allLessons = useMemo(() => {
+    const lessons = [];
+    sectionsData.forEach(section => {
+      section.lessons.forEach(lesson => {
+        lessons.push(lesson);
+      });
+    });
+    return lessons;
+  }, [sectionsData]);
 
   const [activeModuleIndex, setActiveModuleIndex] = useState(0);
   const [showQuiz, setShowQuiz] = useState(false);
@@ -140,9 +165,30 @@ export const JourneyPlayer = ({
   const [contentSection, setContentSection] = useState('learn'); // 'learn', 'example', 'activity', 'vocab', 'speak'
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState(() => new Set());
+  const [quizAttempts, setQuizAttempts] = useState(0);
 
   // Derive activeModule early so callbacks can reference it
-  const activeModule = modules[activeModuleIndex];
+  const activeModule = allLessons[activeModuleIndex];
+  const courseDbId = numericId(course?.db_id || course?.course_id || course?.id);
+  const activeLessonDbId = numericId(activeModule?.db_id || activeModule?.lesson_id || activeModule?.id);
+  const activeModuleDbId = numericId(activeModule?.module_db_id || activeModule?.moduleId || activeModule?.section_db_id || activeModule?.sectionId);
+  const activeQuizDbId = numericId(activeModule?.quiz?.id || activeModule?.quiz_id || activeModule?.id);
+
+  // Load quiz attempt count when quiz section is shown
+  useEffect(() => {
+    const loadQuizAttempts = async () => {
+      if (activeQuizDbId && (contentSection === 'quiz' || showQuiz)) {
+        try {
+          const count = await getAttemptsCount('quiz', activeQuizDbId);
+          setQuizAttempts(count);
+        } catch (err) {
+          console.error('Failed to load quiz attempts:', err);
+          setQuizAttempts(0);
+        }
+      }
+    };
+    loadQuizAttempts();
+  }, [activeQuizDbId, contentSection, showQuiz, getAttemptsCount]);
 
   const getSpeechText = useCallback(() => {
     if (!activeModule) return '';
@@ -185,53 +231,122 @@ export const JourneyPlayer = ({
     };
   }, [stopSpeech]);
 
+  // Start lesson progress when active lesson changes
+  useEffect(() => {
+    if (activeLessonDbId && courseDbId && activeModuleDbId && !previewMode) {
+      startLesson(activeLessonDbId, courseDbId, activeModuleDbId).catch((err) => {
+        console.error('Failed to start lesson progress:', err);
+      });
+
+      // Start heartbeat interval (every 30 seconds)
+      heartbeatIntervalRef.current = setInterval(() => {
+        sendLessonHeartbeat(activeLessonDbId, 30).catch((err) => {
+          console.error('Failed to send lesson heartbeat:', err);
+        });
+      }, 30000);
+
+      return () => {
+        if (heartbeatIntervalRef.current) {
+          clearInterval(heartbeatIntervalRef.current);
+          heartbeatIntervalRef.current = null;
+        }
+      };
+    }
+  }, [activeLessonDbId, courseDbId, activeModuleDbId, previewMode, startLesson, sendLessonHeartbeat]);
+
   // Find initial module or first unlocked incomplete module
   useEffect(() => {
     if (initialModuleId) {
-      const index = modules.findIndex(m => m.id === initialModuleId);
+      const index = allLessons.findIndex(m => m.id === initialModuleId);
       if (index >= 0 && isModuleUnlocked(course.id, initialModuleId)) {
         setActiveModuleIndex(index);
         return;
       }
     }
-    
+
     // Find first incomplete unlocked module (resume functionality)
-    const resumeIndex = modules.findIndex((m, i) => {
+    const resumeIndex = allLessons.findIndex((m, i) => {
       if (i === 0) return !isModuleCompleted(course.id, m.id);
-      const prevModule = modules[i - 1];
+      const prevModule = allLessons[i - 1];
       return isModuleCompleted(course.id, prevModule.id) && !isModuleCompleted(course.id, m.id);
     });
-    
+
     if (resumeIndex >= 0) {
       setActiveModuleIndex(resumeIndex);
     }
-  }, [initialModuleId, modules, course.id, isModuleCompleted, isModuleUnlocked]);
+  }, [initialModuleId, allLessons, course.id, isModuleCompleted, isModuleUnlocked]);
 
   const moduleProgress = getModuleProgress(course.id, activeModule?.id);
   const isCurrentModuleCompleted = isModuleCompleted(course.id, activeModule?.id);
   const completedCount = useMemo(
-    () => modules.filter(m => isModuleCompleted(course.id, m.id)).length,
-    [modules, course.id, isModuleCompleted]
+    () => allLessons.filter(m => isModuleCompleted(course.id, m.id)).length,
+    [allLessons, course.id, isModuleCompleted]
   );
-  const progressPercent = Math.round((completedCount / modules.length) * 100);
+  const progressPercent = Math.round((completedCount / allLessons.length) * 100);
 
   // Handle quiz completion
-  const handleQuizComplete = useCallback((score, passed, attempts) => {
-    if (passed) {
-      completeModule(course.id, activeModule.id, score);
+  const handleQuizComplete = useCallback(async (score, passed, attempts) => {
+    if (previewMode) {
+      if (passed) {
+        completeModule(course.id, activeModule.id, score);
+      }
+      return;
     }
-  }, [course.id, activeModule?.id, completeModule]);
+
+    try {
+      // Get attempt count for this quiz
+      if (!activeQuizDbId || !courseDbId) {
+        throw new Error('Missing numeric quiz or course id');
+      }
+      const attemptCount = await getAttemptsCount('quiz', activeQuizDbId);
+      setQuizAttempts(attemptCount);
+
+      // Start new assessment attempt
+      const attempt = await startAssessment({
+        course_id: courseDbId,
+        assessment_type: 'quiz',
+        assessment_id: activeQuizDbId,
+        attempt_number: attemptCount + 1,
+        lesson_id: activeLessonDbId,
+        module_id: activeModuleDbId,
+      });
+
+      // Submit the attempt with score
+      await submitAssessment(
+        attempt.id,
+        score,
+        100, // max score
+        passed,
+        0, // time spent (can be calculated if needed)
+        passed ? 'Great job! Quiz completed successfully.' : 'Keep practicing!'
+      );
+      setQuizAttempts(attemptCount + 1);
+
+      if (passed) {
+        completeModule(course.id, activeModule.id, score);
+        completeLesson(activeLessonDbId).catch((err) => {
+          console.error('Failed to complete lesson:', err);
+        });
+      }
+    } catch (err) {
+      console.error('Failed to submit quiz attempt:', err);
+      // Fallback to local completion if API fails
+      if (passed) {
+        completeModule(course.id, activeModule.id, score);
+      }
+    }
+  }, [course.id, courseDbId, activeModule, activeQuizDbId, activeLessonDbId, activeModuleDbId, previewMode, completeModule, getAttemptsCount, startAssessment, submitAssessment, completeLesson]);
 
   // Navigate to next module
   const goToNextModule = useCallback(() => {
     const nextIndex = activeModuleIndex + 1;
-    if (nextIndex < modules.length) {
+    if (nextIndex < allLessons.length) {
       setActiveModuleIndex(nextIndex);
       setShowQuiz(false);
       setContentSection('learn');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
-  }, [activeModuleIndex, modules.length]);
+  }, [activeModuleIndex, allLessons.length]);
 
   // Navigate to previous module
   const goToPrevModule = useCallback(() => {
@@ -245,46 +360,27 @@ export const JourneyPlayer = ({
 
   // Select specific module
   const selectModule = useCallback((index) => {
-    const module = modules[index];
+    const module = allLessons[index];
     if (isModuleUnlocked(course.id, module.id)) {
       setActiveModuleIndex(index);
       setShowQuiz(false);
       setContentSection('learn');
+      setQuizAttempts(0);
     }
-  }, [modules, course.id, isModuleUnlocked]);
+  }, [allLessons, course.id, isModuleUnlocked]);
 
   if (!activeModule) return null;
 
-  // Group lessons by section for the sidebar tree. Each entry preserves
-  // the original module index so click handlers continue to work unchanged.
-  const groupedSections = (() => {
-    const groups = []; // [{ title, order, items: [{ module, index }] }]
-    const byTitle = new Map();
-    modules.forEach((m, idx) => {
-      const title = m.sectionTitle || 'Lessons';
-      const order = m.sectionOrder ?? 0;
-      let group = byTitle.get(title);
-      if (!group) {
-        group = { title, order, items: [] };
-        byTitle.set(title, group);
-        groups.push(group);
-      }
-      group.items.push({ module: m, index: idx });
-    });
-    groups.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-    return groups;
-  })();
-
-  const toggleSection = (title) => {
+  const toggleSection = (sectionId) => {
     setCollapsedSections((prev) => {
       const next = new Set(prev);
-      if (next.has(title)) next.delete(title);
-      else next.add(title);
+      if (next.has(sectionId)) next.delete(sectionId);
+      else next.add(sectionId);
       return next;
     });
   };
 
-  const hasMultipleSections = groupedSections.length > 1;
+  const hasMultipleSections = sectionsData.length > 1;
 
   // Check if this module has spoken-english extended fields
   const hasVocab = activeModule?.content?.vocab?.length > 0;
@@ -345,7 +441,7 @@ export const JourneyPlayer = ({
                 </div>
                 <div className="hidden sm:block">
                   <h2 className="font-semibold text-slate-900 text-sm">{course.name}</h2>
-                  <p className="text-xs text-slate-500">{completedCount}/{modules.length} modules</p>
+                  <p className="text-xs text-slate-500">{completedCount}/{allLessons.length} lessons</p>
                 </div>
               </div>
             </div>
@@ -383,19 +479,20 @@ export const JourneyPlayer = ({
                 </div>
                 
                 <div className="p-2 max-h-[70vh] overflow-y-auto">
-                  {groupedSections.map((group) => {
-                    const collapsed = collapsedSections.has(group.title);
-                    const total = group.items.length;
-                    const doneCount = group.items.filter(({ module }) =>
-                      isModuleCompleted(course.id, module.id),
+                  {sectionsData.map((section) => {
+                    const collapsed = collapsedSections.has(section.id);
+                    const lessons = section.lessons || [];
+                    const total = lessons.length;
+                    const doneCount = lessons.filter((lesson) =>
+                      isModuleCompleted(course.id, lesson.id),
                     ).length;
-                    const containsActive = group.items.some(({ index }) => index === activeModuleIndex);
+                    const containsActive = lessons.some((lesson) => lesson.id === activeModule?.id);
 
                     return (
-                      <div key={group.title} className="mb-2">
+                      <div key={section.id} className="mb-2">
                         {hasMultipleSections && (
                           <button
-                            onClick={() => toggleSection(group.title)}
+                            onClick={() => toggleSection(section.id)}
                             className={`w-full flex items-center gap-2 px-2 py-2 rounded-lg text-left transition-colors ${
                               containsActive ? 'bg-primary/5' : 'hover:bg-slate-50'
                             }`}
@@ -406,7 +503,7 @@ export const JourneyPlayer = ({
                               <ChevronDown className="w-4 h-4 text-slate-500 flex-shrink-0" />
                             )}
                             <span className="text-xs font-bold uppercase tracking-wide text-slate-700 flex-grow truncate">
-                              {group.title}
+                              {section.title}
                             </span>
                             <span className="text-[10px] font-semibold text-slate-400 flex-shrink-0">
                               {doneCount}/{total}
@@ -416,16 +513,18 @@ export const JourneyPlayer = ({
 
                         {!collapsed && (
                           <div className={hasMultipleSections ? 'pl-3 ml-2 border-l border-slate-100 mt-1' : ''}>
-                            {group.items.map(({ module, index }) => {
-                              const completed = isModuleCompleted(course.id, module.id);
-                              const unlocked = isModuleUnlocked(course.id, module.id);
-                              const isActive = index === activeModuleIndex;
-                              const progress = getModuleProgress(course.id, module.id);
+                            {lessons.map((lesson, idx) => {
+                              // Find the global index for this lesson
+                              const globalIndex = allLessons.findIndex(l => l.id === lesson.id);
+                              const completed = isModuleCompleted(course.id, lesson.id);
+                              const unlocked = isModuleUnlocked(course.id, lesson.id);
+                              const isActive = globalIndex === activeModuleIndex;
+                              const progress = getModuleProgress(course.id, lesson.id);
 
                               return (
                                 <motion.button
-                                  key={module.id}
-                                  onClick={() => selectModule(index)}
+                                  key={lesson.id}
+                                  onClick={() => selectModule(globalIndex)}
                                   disabled={!unlocked}
                                   whileHover={unlocked ? { x: 4 } : {}}
                                   className={`w-full text-left p-2.5 rounded-xl mb-1 transition-all flex items-center gap-3 ${
@@ -435,7 +534,7 @@ export const JourneyPlayer = ({
                                         ? 'hover:bg-slate-50'
                                         : 'opacity-50 cursor-not-allowed'
                                   }`}
-                                  data-testid={`module-nav-${module.id}`}
+                                  data-testid={`module-nav-${lesson.id}`}
                                 >
                                   <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 text-xs font-bold ${
                                     completed
@@ -451,7 +550,7 @@ export const JourneyPlayer = ({
                                     ) : !unlocked ? (
                                       <Lock className="w-3 h-3" />
                                     ) : (
-                                      index + 1
+                                      globalIndex + 1
                                     )}
                                   </div>
 
@@ -459,7 +558,7 @@ export const JourneyPlayer = ({
                                     <div className={`font-medium text-sm truncate ${
                                       isActive ? 'text-white' : 'text-slate-700'
                                     }`}>
-                                      {module.title}
+                                      {lesson.title}
                                     </div>
                                     {progress && (
                                       <div className={`text-[11px] ${isActive ? 'text-white/70' : 'text-slate-400'}`}>
@@ -468,7 +567,7 @@ export const JourneyPlayer = ({
                                     )}
                                   </div>
 
-                                  {module.level === 'advanced' && (
+                                  {lesson.level === 'advanced' && (
                                     <Sparkles className={`w-3 h-3 ${isActive ? 'text-amber-300' : 'text-amber-500'}`} />
                                   )}
                                 </motion.button>
@@ -851,7 +950,7 @@ export const JourneyPlayer = ({
                                 questions={quizQuestions}
                                 moduleName={activeModule.title}
                                 onComplete={handleQuizComplete}
-                                previousAttempts={moduleProgress?.attempts || 0}
+                                previousAttempts={quizAttempts}
                                 bestScore={moduleProgress?.quizScore || 0}
                                 passingScore={quizPassingScore}
                               />
@@ -896,11 +995,11 @@ export const JourneyPlayer = ({
                           {isCurrentModuleCompleted ? (
                             <Button
                               onClick={goToNextModule}
-                              disabled={activeModuleIndex === modules.length - 1}
+                              disabled={activeModuleIndex === allLessons.length - 1}
                               className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white px-6 py-3 rounded-xl font-semibold shadow-lg shadow-emerald-200"
                               data-testid="journey-next-btn"
                             >
-                              {activeModuleIndex === modules.length - 1 ? (
+                              {activeModuleIndex === allLessons.length - 1 ? (
                                 <>
                                   <Home className="w-4 h-4 mr-2" />
                                   Journey Complete!
@@ -959,7 +1058,7 @@ export const JourneyPlayer = ({
                         questions={Array.isArray(activeModule.quiz) ? activeModule.quiz : activeModule.quiz?.questions || []}
                         moduleName={activeModule.title}
                         onComplete={handleQuizComplete}
-                        previousAttempts={moduleProgress?.attempts || 0}
+                        previousAttempts={quizAttempts}
                         bestScore={moduleProgress?.quizScore || 0}
                         passingScore={quizPassingScore}
                       />
@@ -977,7 +1076,7 @@ export const JourneyPlayer = ({
                             <CheckCircle2 className="w-6 h-6 text-emerald-600" />
                             <span className="font-semibold text-emerald-800">Module Completed!</span>
                           </div>
-                          {activeModuleIndex < modules.length - 1 && (
+                          {activeModuleIndex < allLessons.length - 1 && (
                             <Button
                               onClick={() => selectModule(activeModuleIndex + 1)}
                               className="bg-emerald-600 text-white hover:bg-emerald-700"

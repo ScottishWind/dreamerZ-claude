@@ -11,7 +11,7 @@ from typing import Optional, List
 
 from sqlalchemy import (
     Column, Integer, String, Text, Boolean, Float,
-    DateTime, JSON, ForeignKey, UniqueConstraint,
+    DateTime, JSON, ForeignKey, UniqueConstraint, Numeric,
 )
 from sqlalchemy.orm import DeclarativeBase, relationship, Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -419,9 +419,6 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     last_login: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    # relationships
-    enrollments: Mapped[List["Enrollment"]] = relationship("Enrollment", back_populates="user", cascade="all, delete-orphan")
-
     def __repr__(self) -> str:
         return f"<User(id={self.id}, username='{self.username}', email='{self.email}')>"
 
@@ -441,32 +438,7 @@ class User(Base):
 
 
 # ---------------------------------------------------------------------------
-# 10. Enrollment
-# ---------------------------------------------------------------------------
-
-class Enrollment(Base):
-    __tablename__ = "enrollments"
-    __table_args__ = (
-        UniqueConstraint("user_id", "plan_id", name="uq_enrollment_user_plan"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    plan_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("pricing_plans.id", ondelete="SET NULL"), nullable=True)
-    payment_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    enrolled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-
-    # relationships
-    user: Mapped["User"] = relationship("User", back_populates="enrollments")
-    plan: Mapped[Optional["PricingPlan"]] = relationship("PricingPlan", back_populates="enrollments")
-
-    def __repr__(self) -> str:
-        return f"<Enrollment(id={self.id}, user_id={self.user_id}, plan_id={self.plan_id})>"
-
-
-# ---------------------------------------------------------------------------
-# 15. PricingPlan (unchanged)
+# 15. PricingPlan
 # ---------------------------------------------------------------------------
 
 class PricingPlan(Base):
@@ -492,9 +464,6 @@ class PricingPlan(Base):
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-
-    # relationships
-    enrollments: Mapped[List["Enrollment"]] = relationship("Enrollment", back_populates="plan")
 
     def __repr__(self) -> str:
         return f"<PricingPlan(id={self.id}, slug='{self.slug}', name='{self.name}', price={self.price})>"
@@ -531,3 +500,285 @@ class StatusCheck(Base):
 
     def __repr__(self) -> str:
         return f"<StatusCheck(id={self.id}, client_name='{self.client_name}', timestamp={self.timestamp})>"
+
+
+# ---------------------------------------------------------------------------
+# 13. StudentCourseEnrollment (Learning Progress)
+# ---------------------------------------------------------------------------
+
+class StudentCourseEnrollment(Base):
+    """Tracks when a student starts a course, status, completion, and current position."""
+    __tablename__ = "student_course_enrollments"
+    __table_args__ = (
+        UniqueConstraint("student_user_id", "course_id", name="uq_student_course_enrollment"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    student_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    course_id: Mapped[int] = mapped_column(Integer, ForeignKey("courses.id", ondelete="CASCADE"), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="not_started")
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_accessed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    current_module_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("modules.id", ondelete="SET NULL"), nullable=True)
+    current_lesson_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("lessons.id", ondelete="SET NULL"), nullable=True)
+    completion_percent: Mapped[float] = mapped_column(Numeric(5, 2), default=0)
+    lessons_completed_count: Mapped[int] = mapped_column(Integer, default=0)
+    total_lessons_count: Mapped[int] = mapped_column(Integer, default=0)
+    average_quiz_score: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), nullable=True)
+    average_assignment_score: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), nullable=True)
+    total_time_spent_seconds: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    # relationships
+    student: Mapped["User"] = relationship("User", foreign_keys=[student_user_id])
+    course: Mapped["Course"] = relationship("Course")
+    current_module: Mapped[Optional["Module"]] = relationship("Module", foreign_keys=[current_module_id])
+    current_lesson: Mapped[Optional["Lesson"]] = relationship("Lesson", foreign_keys=[current_lesson_id])
+
+    def __repr__(self) -> str:
+        return f"<StudentCourseEnrollment(id={self.id}, student_user_id={self.student_user_id}, course_id={self.course_id})>"
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "student_user_id": self.student_user_id,
+            "course_id": self.course_id,
+            "status": self.status,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "last_accessed_at": self.last_accessed_at.isoformat() if self.last_accessed_at else None,
+            "current_module_id": self.current_module_id,
+            "current_lesson_id": self.current_lesson_id,
+            "completion_percent": float(self.completion_percent) if self.completion_percent else 0,
+            "lessons_completed_count": self.lessons_completed_count,
+            "total_lessons_count": self.total_lessons_count,
+            "average_quiz_score": float(self.average_quiz_score) if self.average_quiz_score else None,
+            "average_assignment_score": float(self.average_assignment_score) if self.average_assignment_score else None,
+            "total_time_spent_seconds": self.total_time_spent_seconds,
+            "is_active": self.is_active,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+# ---------------------------------------------------------------------------
+# 14. StudentLessonProgress
+# ---------------------------------------------------------------------------
+
+class StudentLessonProgress(Base):
+    """Tracks detailed progress at lesson level."""
+    __tablename__ = "student_lesson_progress"
+    __table_args__ = (
+        UniqueConstraint("student_user_id", "lesson_id", name="uq_student_lesson_progress"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    student_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    course_id: Mapped[int] = mapped_column(Integer, ForeignKey("courses.id", ondelete="CASCADE"), nullable=False)
+    module_id: Mapped[int] = mapped_column(Integer, ForeignKey("modules.id", ondelete="CASCADE"), nullable=False)
+    lesson_id: Mapped[int] = mapped_column(Integer, ForeignKey("lessons.id", ondelete="CASCADE"), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="not_started")
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_accessed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    time_spent_seconds: Mapped[int] = mapped_column(Integer, default=0)
+    visit_count: Mapped[int] = mapped_column(Integer, default=0)
+    completion_percent: Mapped[float] = mapped_column(Numeric(5, 2), default=0)
+    best_quiz_attempt_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    best_assignment_submission_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    best_score: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), nullable=True)
+    mastery_level: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    # relationships
+    student: Mapped["User"] = relationship("User", foreign_keys=[student_user_id])
+    course: Mapped["Course"] = relationship("Course")
+    module: Mapped["Module"] = relationship("Module")
+    lesson: Mapped["Lesson"] = relationship("Lesson")
+
+    def __repr__(self) -> str:
+        return f"<StudentLessonProgress(id={self.id}, student_user_id={self.student_user_id}, lesson_id={self.lesson_id})>"
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "student_user_id": self.student_user_id,
+            "course_id": self.course_id,
+            "module_id": self.module_id,
+            "lesson_id": self.lesson_id,
+            "status": self.status,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "last_accessed_at": self.last_accessed_at.isoformat() if self.last_accessed_at else None,
+            "time_spent_seconds": self.time_spent_seconds,
+            "visit_count": self.visit_count,
+            "completion_percent": float(self.completion_percent) if self.completion_percent else 0,
+            "best_quiz_attempt_id": self.best_quiz_attempt_id,
+            "best_assignment_submission_id": self.best_assignment_submission_id,
+            "best_score": float(self.best_score) if self.best_score else None,
+            "mastery_level": self.mastery_level,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+# ---------------------------------------------------------------------------
+# 15. AssessmentAttempt
+# ---------------------------------------------------------------------------
+
+class AssessmentAttempt(Base):
+    """Tracks every scored attempt across quizzes and assignments."""
+    __tablename__ = "assessment_attempts"
+    __table_args__ = (
+        UniqueConstraint("student_user_id", "assessment_type", "assessment_id", "attempt_number", name="uq_assessment_attempt"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    student_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    course_id: Mapped[int] = mapped_column(Integer, ForeignKey("courses.id", ondelete="CASCADE"), nullable=False)
+    module_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("modules.id", ondelete="SET NULL"), nullable=True)
+    lesson_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("lessons.id", ondelete="SET NULL"), nullable=True)
+    assessment_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    assessment_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="started")
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    graded_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    time_spent_seconds: Mapped[int] = mapped_column(Integer, default=0)
+    raw_score: Mapped[Optional[float]] = mapped_column(Numeric(8, 2), nullable=True)
+    max_score: Mapped[Optional[float]] = mapped_column(Numeric(8, 2), nullable=True)
+    percentage_score: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), nullable=True)
+    passed: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    grader_type: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    graded_by_user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    feedback_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    # relationships
+    student: Mapped["User"] = relationship("User", foreign_keys=[student_user_id])
+    course: Mapped["Course"] = relationship("Course")
+    module: Mapped[Optional["Module"]] = relationship("Module", foreign_keys=[module_id])
+    lesson: Mapped[Optional["Lesson"]] = relationship("Lesson", foreign_keys=[lesson_id])
+    graded_by: Mapped[Optional["User"]] = relationship("User", foreign_keys=[graded_by_user_id])
+
+    def __repr__(self) -> str:
+        return f"<AssessmentAttempt(id={self.id}, student_user_id={self.student_user_id}, assessment_type='{self.assessment_type}')>"
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "student_user_id": self.student_user_id,
+            "course_id": self.course_id,
+            "module_id": self.module_id,
+            "lesson_id": self.lesson_id,
+            "assessment_type": self.assessment_type,
+            "assessment_id": self.assessment_id,
+            "attempt_number": self.attempt_number,
+            "status": self.status,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "submitted_at": self.submitted_at.isoformat() if self.submitted_at else None,
+            "graded_at": self.graded_at.isoformat() if self.graded_at else None,
+            "time_spent_seconds": self.time_spent_seconds,
+            "raw_score": float(self.raw_score) if self.raw_score else None,
+            "max_score": float(self.max_score) if self.max_score else None,
+            "percentage_score": float(self.percentage_score) if self.percentage_score else None,
+            "passed": self.passed,
+            "grader_type": self.grader_type,
+            "graded_by_user_id": self.graded_by_user_id,
+            "feedback_summary": self.feedback_summary,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+# ---------------------------------------------------------------------------
+# 16. AssessmentAttemptAnswer
+# ---------------------------------------------------------------------------
+
+class AssessmentAttemptAnswer(Base):
+    """Stores question-level answers for each quiz attempt."""
+    __tablename__ = "assessment_attempt_answers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    attempt_id: Mapped[int] = mapped_column(Integer, ForeignKey("assessment_attempts.id", ondelete="CASCADE"), nullable=False)
+    question_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    question_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    prompt_snapshot: Mapped[str] = mapped_column(Text, nullable=False)
+    student_answer_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    student_answer_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    correct_answer_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    is_correct: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    score_awarded: Mapped[Optional[float]] = mapped_column(Numeric(8, 2), nullable=True)
+    max_score: Mapped[Optional[float]] = mapped_column(Numeric(8, 2), nullable=True)
+    feedback: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    # relationships
+    attempt: Mapped["AssessmentAttempt"] = relationship("AssessmentAttempt")
+
+    def __repr__(self) -> str:
+        return f"<AssessmentAttemptAnswer(id={self.id}, attempt_id={self.attempt_id}, question_id={self.question_id})>"
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "attempt_id": self.attempt_id,
+            "question_id": self.question_id,
+            "question_type": self.question_type,
+            "prompt_snapshot": self.prompt_snapshot,
+            "student_answer_text": self.student_answer_text,
+            "student_answer_json": self.student_answer_json,
+            "correct_answer_json": self.correct_answer_json,
+            "is_correct": self.is_correct,
+            "score_awarded": float(self.score_awarded) if self.score_awarded else None,
+            "max_score": float(self.max_score) if self.max_score else None,
+            "feedback": self.feedback,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+# ---------------------------------------------------------------------------
+# 17. ParentStudentLink
+# ---------------------------------------------------------------------------
+
+class ParentStudentLink(Base):
+    """Maps parent accounts to student accounts for parent reporting."""
+    __tablename__ = "parent_student_links"
+    __table_args__ = (
+        UniqueConstraint("parent_user_id", "student_user_id", name="uq_parent_student_link"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    parent_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    student_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    relationship_type: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    linked_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    # relationships
+    parent: Mapped["User"] = relationship("User", foreign_keys=[parent_user_id])
+    student: Mapped["User"] = relationship("User", foreign_keys=[student_user_id])
+
+    def __repr__(self) -> str:
+        return f"<ParentStudentLink(id={self.id}, parent_user_id={self.parent_user_id}, student_user_id={self.student_user_id})>"
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "parent_user_id": self.parent_user_id,
+            "student_user_id": self.student_user_id,
+            "relationship_type": self.relationship_type,
+            "is_active": self.is_active,
+            "linked_at": self.linked_at.isoformat() if self.linked_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+

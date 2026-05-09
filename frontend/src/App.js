@@ -14,8 +14,11 @@ import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
 import { ChangePassword } from "./pages/ChangePassword";
 import { AdminPanel } from "./pages/AdminPanel";
+import { ParentDashboard } from "./pages/ParentDashboard";
+import { ParentStudentDetail } from "./pages/ParentStudentDetail";
 import { AuthProvider } from "./hooks/useAuth";
 import { LanguageProvider } from "./hooks/useLanguage";
+import { LearningProgressProvider } from "./hooks/useLearningProgress";
 
 /** Redirect /tools/:toolId → /learn/:toolId preserving the param */
 const ToolRedirect = () => {
@@ -30,6 +33,7 @@ function App() {
         <BrowserRouter>
           <AuthProvider>
           <LanguageProvider>
+          <LearningProgressProvider>
             <ErrorBoundary>
               <Navbar />
               <main className="flex-grow pt-16">
@@ -45,6 +49,10 @@ function App() {
                   <Route path="/reset-password" element={<ChangePassword />} />
                   <Route path="/admin" element={<AdminPanel />} />
 
+                  {/* Parent dashboard routes */}
+                  <Route path="/parent" element={<ParentDashboard />} />
+                  <Route path="/parent/students/:studentUserId" element={<ParentStudentDetail />} />
+
                   {/* Backward-compatible redirects */}
                   <Route path="/tools" element={<Navigate to="/learn" replace />} />
                   <Route path="/tools/:toolId" element={<ToolRedirect />} />
@@ -59,6 +67,7 @@ function App() {
               <Footer />
             </ErrorBoundary>
             <Toaster position="bottom-right" />
+          </LearningProgressProvider>
           </LanguageProvider>
           </AuthProvider>
         </BrowserRouter>
