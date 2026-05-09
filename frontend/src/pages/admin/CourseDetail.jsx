@@ -358,7 +358,7 @@ export const CourseDetail = ({ courseId, token, onBack, onCourseDeleted }) => {
             <div className="min-h-[600px]">
               <JourneyPlayer
                 tool={learnerData.tool}
-                modules={learnerData.modules}
+                sections={learnerData.sections}
                 isModuleCompleted={learnerData.isModuleCompleted}
                 isModuleUnlocked={learnerData.isModuleUnlocked}
                 getModuleProgress={learnerData.getModuleProgress}

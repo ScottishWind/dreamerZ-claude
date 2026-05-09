@@ -1,6 +1,6 @@
 /**
  * Adapter to convert a course draft (blueprint shape) into the learner-facing
- * tool/modules shape expected by JourneyPlayer.
+ * tool/sections shape expected by JourneyPlayer.
  *
  * Draft shape:
  *   draft.blueprint.modules[*].lessons[*] with
@@ -9,7 +9,7 @@
  *
  * Learner shape:
  *   tool = { id, name, icon, color, xpReward }
- *   modules[*] = { id, title, level, minutes, content: { explanation, example, activity }, quiz: { questions: [...] } }
+ *   sections[*] = { id, title, sort_order, lessons: [{ id, title, level, minutes, content, quiz }] }
  *   quiz.questions[*] = { question, options, correctAnswer, explanation, type }
  */
 
@@ -29,13 +29,9 @@ export const draftToLearnerTool = (draft) => {
     xpReward: 0, // Preview mode — no XP
   };
 
-  // Flatten modules → lessons into a single modules array with section metadata
-  const modules = [];
-  let lessonIdx = 0;
-
-  (blueprint.modules || []).forEach((module, mIdx) => {
-    (module.lessons || []).forEach((lesson, lIdx) => {
-      lessonIdx++;
+  // Build hierarchical sections structure
+  const sections = (blueprint.modules || []).map((module, mIdx) => {
+    const lessons = (module.lessons || []).map((lesson, lIdx) => {
       const content = lesson.content || {};
       const quizQuestions = (content.quiz?.questions || []).map((q) => ({
         question: q.question,
@@ -45,7 +41,7 @@ export const draftToLearnerTool = (draft) => {
         type: 'mcq',
       }));
 
-      modules.push({
+      return {
         id: lesson.id,
         title: `M${mIdx + 1}.${lIdx + 1} — ${lesson.title}`,
         level: blueprint.difficulty || 'beginner',
@@ -58,14 +54,18 @@ export const draftToLearnerTool = (draft) => {
         quiz: {
           questions: quizQuestions,
         },
-        // Add section metadata for UI grouping
-        sectionTitle: module.title,
-        sectionOrder: module.order || mIdx,
         // Track original module/lesson for debugging
         _originalModuleId: module.id,
         _originalLessonId: lesson.id,
-      });
+      };
     });
+
+    return {
+      id: module.id,
+      title: module.title,
+      sort_order: module.order || mIdx,
+      lessons,
+    };
   });
 
   // Stubbed progress hooks for read-only preview
@@ -76,7 +76,7 @@ export const draftToLearnerTool = (draft) => {
 
   return {
     tool,
-    modules,
+    sections,
     isModuleCompleted,
     isModuleUnlocked,
     getModuleProgress,

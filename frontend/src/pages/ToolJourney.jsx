@@ -49,11 +49,11 @@ export const ToolJourney = () => {
 
       try {
         const langParam = language && language !== 'en' ? `?lang=${language}` : '';
-        // Try legacy tools endpoint first, then published courses
-        let response = await fetch(`${API_BASE}/api/content/tools/${toolId}${langParam}`);
+        // Prefer published courses endpoint for hierarchical sections, then fall back to legacy tools
+        let response = await fetch(`${API_BASE}/api/content/courses/${toolId}${langParam}`);
         if (!response.ok) {
-          // Not a legacy tool — try the courses endpoint
-          response = await fetch(`${API_BASE}/api/content/courses/${toolId}${langParam}`);
+          // Not a published course — try the legacy tools endpoint
+          response = await fetch(`${API_BASE}/api/content/tools/${toolId}${langParam}`);
           if (!response.ok) {
             const data = await response.json().catch(() => ({}));
             throw new Error(data.detail || data.message || 'Failed to load content.');
@@ -62,24 +62,22 @@ export const ToolJourney = () => {
 
         const data = await response.json();
 
-        // If data has sections (new LMS structure), flatten to modules for JourneyPlayer compatibility
+        // If data has sections (new LMS structure), pass them directly to JourneyPlayer
         if (data.sections && Array.isArray(data.sections)) {
-          const flattenedModules = [];
-          data.sections.forEach((section, sIdx) => {
-            if (section.lessons && Array.isArray(section.lessons)) {
-              section.lessons.forEach((lesson) => {
-                flattenedModules.push({
-                  ...lesson,
-                  sectionTitle: section.title,
-                  sectionOrder: section.sort_order || sIdx,
-                });
-              });
-            }
-          });
-          setTool({ ...data, modules: flattenedModules });
-        } else {
-          // Legacy structure or already flat
           setTool(data);
+        } else {
+          // Legacy structure or already flat - convert to sections format for consistency
+          setTool({
+            ...data,
+            sections: [
+              {
+                id: 'default',
+                title: 'Lessons',
+                sort_order: 0,
+                lessons: data.modules || [],
+              },
+            ],
+          });
         }
       } catch (err) {
         setError(err.message);
@@ -167,7 +165,7 @@ export const ToolJourney = () => {
       {activeTab === 'modules' && (
         <JourneyPlayer
           tool={tool}
-          modules={tool.modules}
+          sections={tool.sections}
           isModuleCompleted={isModuleCompleted}
           isModuleUnlocked={isModuleUnlocked}
           getModuleProgress={getModuleProgress}
