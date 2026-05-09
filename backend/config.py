@@ -11,9 +11,13 @@ load_dotenv(ROOT_DIR / ".env")
 
 # ── Database ──────────────────────────────────────────────
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./dreamerz.db")
-# Fix Render's postgres:// prefix for SQLAlchemy
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
+# Render exposes DATABASE_URL as either `postgres://` (legacy) or
+# `postgresql://` (modern). Either way we need the async driver explicitly,
+# otherwise SQLAlchemy falls back to psycopg2 (which we don't install).
+for _prefix in ("postgres://", "postgresql://"):
+    if DATABASE_URL.startswith(_prefix):
+        DATABASE_URL = "postgresql+asyncpg://" + DATABASE_URL[len(_prefix):]
+        break
 
 # ── Authentication ────────────────────────────────────────
 JWT_SECRET = os.environ.get("JWT_SECRET", "")
