@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useCurriculum } from '../hooks/useCurriculum';
 import { useLearningProgress } from '../hooks/useLearningProgress';
 import { useProgress } from '../hooks/useProgress';
@@ -111,7 +111,7 @@ const CourseCatalogCard = ({ course, index, isEnrolled, isEnrolling, onEnroll })
   );
 };
 
-export const LearnHub = () => {
+export const LearnHub = ({ viewMode: initialViewMode = 'catalog' }) => {
   const { tools: apiTools, isLoading, error } = useCurriculum();
   const { courseEnrollments, loadCourseEnrollments, startCourse, deleteCourse } = useLearningProgress();
   const {
@@ -123,12 +123,22 @@ export const LearnHub = () => {
     resetProgress,
     clearCourseProgress
   } = useProgress();
-  const [viewMode, setViewMode] = useState('catalog'); // 'catalog' or 'progress'
+  const location = useLocation();
+  const [viewMode, setViewMode] = useState(location.pathname === '/myprogress' ? 'progress' : initialViewMode); // 'catalog' or 'progress'
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [enrollingCourseId, setEnrollingCourseId] = useState(null);
   const [enrollError, setEnrollError] = useState(null);
   const streakInfo = getStreakInfo();
+
+  // Sync viewMode with URL
+  useEffect(() => {
+    if (location.pathname === '/myprogress') {
+      setViewMode('progress');
+    } else if (location.pathname === '/learn') {
+      setViewMode('catalog');
+    }
+  }, [location.pathname]);
 
   useEffect(() => {
     loadCourseEnrollments();
@@ -285,57 +295,59 @@ export const LearnHub = () => {
 
         {/* Colorful Progress Tracker Banner */}
         {viewMode === 'catalog' && (
-          <motion.button
-            type="button"
+          <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            onClick={() => setViewMode('progress')}
-            className="w-full bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 rounded-3xl p-6 lg:p-8 shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all text-left relative overflow-hidden group mb-8"
           >
-            <div className="absolute -right-16 -top-16 w-48 h-48 rounded-full bg-white/10 group-hover:bg-white/15 transition-colors" />
-            <div className="absolute -right-8 -bottom-8 w-32 h-32 rounded-full bg-white/10 group-hover:bg-white/15 transition-colors" />
-            <div className="relative z-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
-              <div className="flex items-start gap-4">
-                <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center text-3xl flex-shrink-0 backdrop-blur">
-                  📊
-                </div>
-                <div className="flex-grow">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="bg-white/20 text-white text-xs font-bold px-2 py-0.5 rounded-full backdrop-blur">
-                      {enrolledTools.length} ENROLLED
-                    </span>
-                    <span className="bg-white/20 text-white text-xs font-semibold px-2 py-0.5 rounded-full backdrop-blur">
-                      {overallCompletion}% COMPLETE
-                    </span>
+            <Link
+              to="/myprogress"
+              className="w-full bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 rounded-3xl p-6 lg:p-8 shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all text-left relative overflow-hidden group mb-8 block"
+            >
+              <div className="absolute -right-16 -top-16 w-48 h-48 rounded-full bg-white/10 group-hover:bg-white/15 transition-colors" />
+              <div className="absolute -right-8 -bottom-8 w-32 h-32 rounded-full bg-white/10 group-hover:bg-white/15 transition-colors" />
+              <div className="relative z-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+                <div className="flex items-start gap-4">
+                  <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center text-3xl flex-shrink-0 backdrop-blur">
+                    📊
                   </div>
-                  <h2 className="text-2xl font-bold text-white mb-1">Your Learning Progress</h2>
-                  <p className="text-white/90 text-sm max-w-xl">
-                    Track your progress across all enrolled courses. See completion rates, XP earned, and your learning streak.
-                  </p>
+                  <div className="flex-grow">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="bg-white/20 text-white text-xs font-bold px-2 py-0.5 rounded-full backdrop-blur">
+                        {enrolledTools.length} ENROLLED
+                      </span>
+                      <span className="bg-white/20 text-white text-xs font-semibold px-2 py-0.5 rounded-full backdrop-blur">
+                        {overallCompletion}% COMPLETE
+                      </span>
+                    </div>
+                    <h2 className="text-2xl font-bold text-white mb-1">Your Learning Progress</h2>
+                    <p className="text-white/90 text-sm max-w-xl">
+                      Track your progress across all enrolled courses. See completion rates, XP earned, and your learning streak.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  <div className="bg-white/15 backdrop-blur rounded-2xl px-4 py-3 text-center min-w-[80px]">
+                    <div className="text-2xl font-bold text-white">{overallCompletion}%</div>
+                    <div className="text-xs text-white/80">Complete</div>
+                  </div>
+                  <div className="bg-white/15 backdrop-blur rounded-2xl px-4 py-3 text-center min-w-[80px]">
+                    <div className="text-2xl font-bold text-white">{totalXP}</div>
+                    <div className="text-xs text-white/80">XP</div>
+                  </div>
+                  <div className="bg-white/15 backdrop-blur rounded-2xl px-4 py-3 text-center min-w-[80px]">
+                    <div className="text-2xl font-bold text-white">{streakInfo.currentStreak}</div>
+                    <div className="text-xs text-white/80">Day Streak</div>
+                  </div>
+                  <div className="bg-white text-emerald-600 rounded-xl px-5 py-3 font-semibold group-hover:bg-emerald-50 transition-colors flex items-center gap-2">
+                    <BarChart3 className="w-4 h-4" />
+                    View Details
+                    <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                  </div>
                 </div>
               </div>
-              <div className="flex items-center gap-3 flex-shrink-0">
-                <div className="bg-white/15 backdrop-blur rounded-2xl px-4 py-3 text-center min-w-[80px]">
-                  <div className="text-2xl font-bold text-white">{overallCompletion}%</div>
-                  <div className="text-xs text-white/80">Complete</div>
-                </div>
-                <div className="bg-white/15 backdrop-blur rounded-2xl px-4 py-3 text-center min-w-[80px]">
-                  <div className="text-2xl font-bold text-white">{totalXP}</div>
-                  <div className="text-xs text-white/80">XP</div>
-                </div>
-                <div className="bg-white/15 backdrop-blur rounded-2xl px-4 py-3 text-center min-w-[80px]">
-                  <div className="text-2xl font-bold text-white">{streakInfo.currentStreak}</div>
-                  <div className="text-xs text-white/80">Day Streak</div>
-                </div>
-                <div className="bg-white text-emerald-600 rounded-xl px-5 py-3 font-semibold group-hover:bg-emerald-50 transition-colors flex items-center gap-2">
-                  <BarChart3 className="w-4 h-4" />
-                  View Details
-                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                </div>
-              </div>
-            </div>
-          </motion.button>
+            </Link>
+          </motion.div>
         )}
 
         <AnimatePresence mode="wait">

@@ -42,6 +42,7 @@ function App() {
                   <Route path="/" element={<Landing />} />
                   <Route path="/learn" element={<LearnHub />} />
                   <Route path="/learn/:toolId" element={<ToolJourney />} />
+                  <Route path="/myprogress" element={<LearnHub viewMode="progress" />} />
                   <Route path="/parents" element={<Parents />} />
                   <Route path="/account" element={<Account />} />
                   <Route path="/login" element={<Login />} />

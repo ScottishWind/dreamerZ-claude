@@ -133,7 +133,7 @@ export const Navbar = () => {
                 {isAuthenticated ? (
                   <>
                     <Link
-                      to="/learn"
+                      to="/myprogress"
                       onClick={() => setIsOpen(false)}
                       className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-700 hover:bg-slate-100 font-medium"
                     >
