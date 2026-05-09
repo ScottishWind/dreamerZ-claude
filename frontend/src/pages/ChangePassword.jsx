@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { Lock, CheckCircle2 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { SEO } from '../components/SEO';
-import { Lock, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { useAuth } from '../hooks/useAuth';
 
 const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
 
-export const ResetPassword = () => {
-  const [searchParams] = useSearchParams();
+export const ChangePassword = () => {
+  const { token, isAuthenticated, isLoaded, applyAuthResponse } = useAuth();
   const navigate = useNavigate();
-  const token = searchParams.get('token') || '';
 
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -18,8 +18,11 @@ export const ResetPassword = () => {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!token) setError('This reset link is missing its token. Request a new one from the Forgot Password page.');
-  }, [token]);
+    // Bounce unauthenticated users to login.
+    if (isLoaded && !isAuthenticated) {
+      navigate('/login', { replace: true });
+    }
+  }, [isLoaded, isAuthenticated, navigate]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -36,19 +39,25 @@ export const ResetPassword = () => {
 
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/auth/reset-password`, {
+      const res = await fetch(`${API_BASE}/api/auth/change-password`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, new_password: password }),
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ new_password: password, confirm_password: confirm }),
       });
+      const result = await res.json();
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.detail || 'Could not reset password. The link may have expired.');
+        throw new Error(result.detail || 'Could not update password.');
       }
+      // Server returns a fresh JWT signed against the new hash; swap it in
+      // so the user stays authenticated without re-entering credentials.
+      applyAuthResponse(result);
       setDone(true);
-      setTimeout(() => navigate('/login'), 2500);
+      setTimeout(() => navigate('/learn'), 1500);
     } catch (err) {
-      setError(err.message || 'Could not reset password.');
+      setError(err.message || 'Could not update password.');
     } finally {
       setLoading(false);
     }
@@ -65,26 +74,14 @@ export const ResetPassword = () => {
                 <CheckCircle2 className="w-6 h-6 text-emerald-600" />
               </div>
               <h1 className="text-2xl font-bold text-slate-900 mb-2">Password updated</h1>
-              <p className="text-slate-600 mb-6">
-                You can now sign in with your new password. Redirecting you to login…
-              </p>
-              <Link to="/login" className="text-primary font-semibold hover:text-primary/80 text-sm">
-                Go to login
-              </Link>
+              <p className="text-slate-600">Redirecting you to your learning hub…</p>
             </div>
           ) : (
             <>
-              <h1 className="text-3xl font-bold text-slate-900 mb-3">Reset your password</h1>
+              <h1 className="text-3xl font-bold text-slate-900 mb-3">Reset password</h1>
               <p className="text-slate-600 mb-8">
-                Choose a new password for your account.
+                Choose a new password for your account. You'll stay signed in.
               </p>
-
-              {!token && (
-                <div className="flex items-start gap-2 p-3 mb-6 rounded-lg bg-amber-50 text-amber-800 text-sm">
-                  <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                  <span>This reset link is missing its token.</span>
-                </div>
-              )}
 
               <form className="space-y-6" onSubmit={handleSubmit}>
                 <label className="block text-sm font-medium text-slate-700">
@@ -98,13 +95,14 @@ export const ResetPassword = () => {
                       className="w-full rounded-xl border-0 bg-transparent py-3 pl-12 pr-4 text-slate-900 outline-none"
                       placeholder="At least 8 characters"
                       minLength={8}
+                      autoComplete="new-password"
                       required
                     />
                   </div>
                 </label>
 
                 <label className="block text-sm font-medium text-slate-700">
-                  Confirm new password
+                  Re-enter new password
                   <div className="mt-2 relative rounded-xl border border-slate-200 bg-slate-50 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary">
                     <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input
@@ -114,6 +112,7 @@ export const ResetPassword = () => {
                       className="w-full rounded-xl border-0 bg-transparent py-3 pl-12 pr-4 text-slate-900 outline-none"
                       placeholder="Repeat the password"
                       minLength={8}
+                      autoComplete="new-password"
                       required
                     />
                   </div>
@@ -121,9 +120,17 @@ export const ResetPassword = () => {
 
                 {error && <div className="text-sm text-rose-600">{error}</div>}
 
-                <Button type="submit" className="w-full" disabled={loading || !token}>
-                  {loading ? 'Updating…' : 'Update password'}
-                </Button>
+                <div className="flex items-center gap-3">
+                  <Button type="submit" className="flex-1" disabled={loading}>
+                    {loading ? 'Saving…' : 'Save new password'}
+                  </Button>
+                  <Link
+                    to="/account"
+                    className="text-sm text-slate-600 hover:text-slate-900 px-4 py-3"
+                  >
+                    Cancel
+                  </Link>
+                </div>
               </form>
             </>
           )}
@@ -133,4 +140,4 @@ export const ResetPassword = () => {
   );
 };
 
-export default ResetPassword;
+export default ChangePassword;

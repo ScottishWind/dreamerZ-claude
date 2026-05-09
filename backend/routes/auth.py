@@ -1,8 +1,7 @@
-"""Authentication routes — register, login, profile, password reset."""
+"""Authentication routes — register, login, profile, change password."""
 
 import logging
-import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -16,17 +15,14 @@ from models.user import UserCreate, UserLogin, TokenResponse, UserInfoResponse, 
 from services.auth_service import (
     authenticate_user,
     create_access_token,
-    decode_access_token,
     get_current_user,
     get_password_hash,
     is_admin,
 )
-from services.email_service import send_password_reset_email, send_welcome_email
+from services.email_service import send_welcome_email
 from middleware.rate_limit import check_auth_rate_limit
 
 logger = logging.getLogger(__name__)
-
-PASSWORD_RESET_TOKEN_EXPIRY_MINUTES = 60
 
 _VALID_LANG_CODES = {lang["code"] for lang in SUPPORTED_LANGUAGES}
 
@@ -189,125 +185,57 @@ async def get_supported_languages():
     return SUPPORTED_LANGUAGES
 
 
-# ── Password reset ───────────────────────────────────────
+# ── Change password (authenticated) ──────────────────────
 
-class ForgotPasswordRequest(BaseModel):
-    email: str = Field(..., max_length=255)
-
-
-class ResetPasswordRequest(BaseModel):
-    token: str = Field(..., max_length=2048)
+class ChangePasswordRequest(BaseModel):
     new_password: str = Field(..., min_length=8, max_length=128)
+    confirm_password: str = Field(..., min_length=8, max_length=128)
 
 
-def _password_nonce(hashed_password: str) -> str:
-    """Last 8 chars of the bcrypt hash; used to invalidate reset tokens once
-    the password changes (the nonce won't match the new hash)."""
-    return (hashed_password or "")[-8:]
-
-
-def _frontend_base_url() -> str:
-    """Compute the frontend origin we'll embed in reset emails. Uses the
-    first entry of CORS_ORIGINS as a sensible default; FRONTEND_URL env
-    var overrides explicitly when set."""
-    explicit = os.environ.get("FRONTEND_URL", "").strip()
-    if explicit:
-        return explicit.rstrip("/")
-    cors_raw = os.environ.get("CORS_ORIGINS", "").strip()
-    if cors_raw:
-        first = cors_raw.split(",")[0].strip().rstrip("/")
-        if first:
-            return first
-    return "http://localhost:3000"
-
-
-@router.post("/forgot-password")
-async def forgot_password(
-    body: ForgotPasswordRequest,
-    request: Request,
+@router.post("/change-password", response_model=TokenResponse)
+async def change_password(
+    body: ChangePasswordRequest,
+    current_user: dict = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
-    """Send a password-reset link to the user's email if it exists.
+    """Set a new password for the currently authenticated user.
 
-    Always returns a generic success message to avoid leaking which
-    addresses are registered. Rate-limited per client IP.
+    Returns a fresh JWT signed against the new password hash so the user
+    stays logged in seamlessly without having to re-enter credentials.
     """
-    client_ip = request.client.host if request.client else "unknown"
-    check_auth_rate_limit(client_ip)
-
-    email = body.email.strip().lower()
-    if not EMAIL_REGEX.match(email):
-        # Same generic response — don't help attackers enumerate.
-        return {"detail": "If that email is registered, a reset link is on its way."}
-
-    result = await session.execute(select(User).where(User.email == email))
-    user = result.scalars().first()
-
-    if user:
-        token = create_access_token(
-            {
-                "sub": user.username,
-                "purpose": "password_reset",
-                "pw_nonce": _password_nonce(user.hashed_password),
-            },
-            expires_delta=timedelta(minutes=PASSWORD_RESET_TOKEN_EXPIRY_MINUTES),
-        )
-        reset_link = f"{_frontend_base_url()}/reset-password?token={token}"
-        try:
-            send_password_reset_email(
-                to_email=user.email,
-                username=user.username,
-                reset_link=reset_link,
-            )
-        except Exception:
-            # Email delivery shouldn't 500 the request or leak which addresses
-            # are real. Log and move on.
-            logger.exception("Failed to send password reset email to %s", email)
-
-    return {"detail": "If that email is registered, a reset link is on its way."}
-
-
-@router.post("/reset-password")
-async def reset_password(
-    body: ResetPasswordRequest,
-    session: AsyncSession = Depends(get_db),
-):
-    """Verify a reset token and set a new password.
-
-    The token is a JWT with purpose='password_reset' and a nonce derived
-    from the user's current password hash; once the password changes the
-    nonce drifts and the token can't be reused.
-    """
-    payload = decode_access_token(body.token)
-
-    if payload.get("purpose") != "password_reset":
-        raise HTTPException(status_code=400, detail="Invalid reset token.")
-
-    username = payload.get("sub")
-    if not username:
-        raise HTTPException(status_code=400, detail="Invalid reset token.")
-
-    result = await session.execute(select(User).where(User.username == username))
-    user = result.scalars().first()
-    if not user:
-        raise HTTPException(status_code=400, detail="Invalid reset token.")
-
-    if payload.get("pw_nonce") != _password_nonce(user.hashed_password):
-        # Password was already changed since the token was issued.
-        raise HTTPException(
-            status_code=400,
-            detail="This reset link has already been used or is no longer valid.",
-        )
-
     new_password = body.new_password.strip()
+    confirm = body.confirm_password.strip()
+
+    if new_password != confirm:
+        raise HTTPException(status_code=400, detail="Passwords do not match.")
     if len(new_password) < 8:
         raise HTTPException(
             status_code=400,
             detail="Password must be at least 8 characters long.",
         )
 
+    result = await session.execute(
+        select(User).where(User.username == current_user["username"])
+    )
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+
     user.hashed_password = get_password_hash(new_password)
     user.updated_at = datetime.now(timezone.utc)
     await session.commit()
 
-    return {"detail": "Password has been reset. You can sign in with the new password."}
+    admin = is_admin(current_user)
+    user_lang = current_user.get("preferred_language", DEFAULT_LANGUAGE)
+    new_token = create_access_token(
+        {"sub": user.username, "email": user.email, "is_admin": admin, "lang": user_lang}
+    )
+
+    return {
+        "access_token": new_token,
+        "username": user.username,
+        "email": user.email,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+        "is_admin": admin,
+        "preferred_language": user_lang,
+    }

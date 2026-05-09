@@ -74,12 +74,6 @@ export const Login = () => {
 
             {error && <div className="text-sm text-rose-600">{error}</div>}
 
-            <div className="text-right -mt-2">
-              <Link to="/forgot-password" className="text-sm text-primary hover:text-primary/80 font-medium">
-                Forgot password?
-              </Link>
-            </div>
-
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? 'Signing in...' : 'Sign in'}
             </Button>

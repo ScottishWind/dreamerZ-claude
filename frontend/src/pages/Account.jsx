@@ -3,7 +3,7 @@ import { Navigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   UserCircle2, Mail, CalendarDays, Clock3, MapPin, Phone, FileText,
-  Download, Upload, RotateCcw, Check, AlertTriangle, FileJson, Info, Shield, Globe
+  Download, Upload, RotateCcw, Check, AlertTriangle, FileJson, Info, Shield, Globe, Lock,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '../components/ui/button';
@@ -297,6 +297,26 @@ export const Account = () => {
                       <Button type="submit">Save profile</Button>
                     </div>
                   </form>
+                </div>
+
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 sm:p-8 mt-6">
+                  <div className="flex items-start justify-between gap-4 flex-wrap">
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center flex-shrink-0">
+                        <Lock className="w-5 h-5 text-slate-600" />
+                      </div>
+                      <div>
+                        <h3 className="text-base font-semibold text-slate-900">Password</h3>
+                        <p className="text-sm text-slate-500 mt-1">Choose a new password whenever you want.</p>
+                      </div>
+                    </div>
+                    <Link
+                      to="/reset-password"
+                      className="text-sm font-semibold text-primary hover:text-primary/80 px-4 py-2 rounded-xl border border-primary/20 hover:bg-primary/5 transition-colors"
+                    >
+                      Reset password
+                    </Link>
+                  </div>
                 </div>
               </motion.div>
             ) : (

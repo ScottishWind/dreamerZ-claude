@@ -120,6 +120,27 @@ export const AuthProvider = ({ children }) => {
     return result;
   }, [login, navigate]);
 
+  // Swap in a fresh TokenResponse (e.g. after change-password).
+  // Keeps the user logged in seamlessly without bouncing through /login.
+  const applyAuthResponse = useCallback((result) => {
+    if (!result?.access_token) return;
+    const auth = {
+      token: result.access_token,
+      user: buildUserProfile({
+        username: result.username,
+        email: result.email,
+        isAdmin: result.is_admin,
+        preferredLanguage: result.preferred_language,
+        profile: result.profile,
+        createdAt: result.created_at,
+        lastLoginAt: new Date().toISOString(),
+      }),
+    };
+    saveAuth(auth);
+    setUser(auth.user);
+    setToken(auth.token);
+  }, []);
+
   const updateProfile = useCallback((updates) => {
     setUser((currentUser) => {
       if (!currentUser) return currentUser;
@@ -157,6 +178,7 @@ export const AuthProvider = ({ children }) => {
         isAuthenticated: Boolean(token),
         login,
         register,
+        applyAuthResponse,
         updateProfile,
         logout
       }}
