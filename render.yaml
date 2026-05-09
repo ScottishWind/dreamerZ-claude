@@ -32,6 +32,12 @@ services:
         sync: false  # Set after frontend deploys (e.g. https://dreamerz-frontend.onrender.com)
       - key: ADMIN_EMAILS
         sync: false  # Comma-separated emails granted admin access
+      - key: RESEND_API_KEY
+        sync: false  # API key from resend.com — required for password reset / welcome emails
+      - key: SENDER_EMAIL
+        value: onboarding@resend.dev  # Sandbox sender; replace with verified domain for production
+      - key: FRONTEND_URL
+        sync: false  # e.g. https://dreamerz-frontend.onrender.com — used in reset email link
       - key: PYTHON_VERSION
         value: "3.11.6"
 
