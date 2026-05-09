@@ -1,21 +1,35 @@
-"""MongoDB connection, index creation, and data seeding."""
+"""SQLAlchemy async engine, session factory, and data seeding."""
 
 import json
 import logging
+from collections import defaultdict
 from copy import deepcopy
-from datetime import datetime, timezone
 
-from motor.motor_asyncio import AsyncIOMotorClient
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy import select
 
-from config import MONGO_URL, DB_NAME, CURRICULUM_JSON_PATH, SITE_CONFIG_JSON_PATH
+from config import DATABASE_URL, CURRICULUM_JSON_PATH, SITE_CONFIG_JSON_PATH
+from models.sql_models import (
+    Base,
+    Category,
+    Course,
+    Module,
+    Lesson,
+    LessonContent,
+    Quiz,
+    QuizQuestion,
+    PricingPlan,
+    FAQ,
+)
 
-# ── Connection ────────────────────────────────────────────
-client = AsyncIOMotorClient(MONGO_URL)
-db = client[DB_NAME]
+# ── Engine & Session Factory ─────────────────────────────
 
-# GridFS for file storage
-from motor.motor_asyncio import AsyncIOMotorGridFSBucket
-fs_bucket = AsyncIOMotorGridFSBucket(db, bucket_name="media")
+_connect_args = {}
+if DATABASE_URL.startswith("sqlite"):
+    _connect_args = {"check_same_thread": False}
+
+engine = create_async_engine(DATABASE_URL, echo=False, connect_args=_connect_args)
+async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 # ── Seed Data (loaded once at import) ─────────────────────
 try:
@@ -50,390 +64,345 @@ CATEGORIES_DATA = [
 ]
 
 
-# ── Document Builders ─────────────────────────────────────
-def _build_tool_document(tool: dict) -> dict:
-    return {
-        "id": tool["id"],
-        "name": tool.get("name"),
-        "tagline": tool.get("tagline"),
-        "icon": tool.get("icon"),
-        "theme": tool.get("theme", {}),
-        "description": tool.get("description"),
-        "totalXP": tool.get("totalXP", 0),
-        "xpReward": tool.get("totalXP", 0),
-        "color": tool.get("theme", {}).get("color", "#10A37F"),
-        "category_id": tool.get("category_id", "ai-learning"),
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
+# ── Database Initialization ──────────────────────────────
 
+async def init_db(drop_first: bool = False):
+    """Create all tables defined in Base.metadata.
 
-def _build_category_document(category: dict) -> dict:
-    return {
-        "id": category["id"],
-        "name": category.get("name"),
-        "description": category.get("description", ""),
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-
-
-def _build_module_document(tool_id: str, module: dict) -> dict:
-    explanation = module.get("explanation", "")
-    first_line = explanation.split("\n")[0] if explanation else ""
-    return {
-        "id": module["id"],
-        "tool_id": tool_id,
-        "title": module.get("title"),
-        "minutes": module.get("minutes"),
-        "level": module.get("level"),
-        "description": first_line,
-        "isAdvanced": module.get("level") == "advanced",
-        "day": module.get("day"),
-        "week": module.get("week"),
-        "is_weekly_test": module.get("is_weekly_test", False),
-        "content": {
-            "explanation": explanation,
-            "example": module.get("example", ""),
-            "activity": module.get("activity", ""),
-            "vocab": module.get("vocab", []),
-            "dialogue": module.get("dialogue", []),
-            "speaking_task": module.get("speaking_task", ""),
-            "bengali_tip": module.get("bengali_tip", ""),
-            "micro_grammar": module.get("micro_grammar", ""),
-        },
-        "quiz": module.get("quiz", {}),
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-
-
-# ── Index Creation ────────────────────────────────────────
-async def create_indexes():
-    # Legacy indexes
-    await db.users.create_index("username", unique=True)
-    await db.users.create_index("email", unique=True)
-    await db.tools.create_index("id", unique=True)
-    await db.tools.create_index("category_id")
-    await db.modules.create_index("id", unique=True)
-    await db.modules.create_index("tool_id")
-    await db.categories.create_index("id", unique=True)
-    await db.pricing_plans.create_index("id", unique=True)
-    await db.faqs.create_index("id", unique=True)
-    await db.enrollments.create_index(
-        [("username", 1), ("plan_id", 1)], unique=True
-    )
-    await db.enrollments.create_index("username")
-
-    # ── LMS indexes ──────────────────────────────────────
-    await db.courses.create_index("id", unique=True)
-    await db.courses.create_index("category_id")
-    await db.courses.create_index("status")
-    await db.sections.create_index("id", unique=True)
-    await db.sections.create_index("course_id")
-    await db.lessons.create_index("id", unique=True)
-    await db.lessons.create_index("course_id")
-    await db.lessons.create_index("section_id")
-    await db.lessons.create_index([("course_id", 1), ("sort_order", 1)])
-    await db.lessons.create_index([("course_id", 1), ("section_id", 1), ("sort_order", 1)])
-    await db.lesson_contents.create_index(
-        [("lesson_id", 1), ("language", 1)], unique=True
-    )
-    await db.assessments.create_index("id", unique=True)
-    await db.assessments.create_index("lesson_id")
-    await db.assessments.create_index("course_id")
-    await db.media_assets.create_index("id", unique=True)
-    await db.media_assets.create_index("type")
-    await db.media_assets.create_index("course_id")
-    await db.lesson_versions.create_index(
-        [("lesson_id", 1), ("version_number", 1)], unique=True
-    )
-    await db.content_workflows.create_index("entity_id")
-    await db.content_workflows.create_index(
-        [("entity_type", 1), ("entity_id", 1)]
-    )
-
-    # ── Course Generation (AI-assisted drafts) ───────────
-    await db.course_drafts.create_index("id", unique=True)
-    await db.course_drafts.create_index("admin_username")
-    await db.course_drafts.create_index("status")
-
-
-# ── Curriculum Seeding ────────────────────────────────────
-async def seed_curriculum_collections():
-    for category in CATEGORIES_DATA:
-        await db.categories.update_one(
-            {"id": category["id"]},
-            {"$setOnInsert": _build_category_document(category)},
-            upsert=True,
-        )
-
-    tools = CURRICULUM_DATA.get("tools", [])
-    journeys = CURRICULUM_DATA.get("journeys", {})
-
-    for tool in tools:
-        await db.tools.replace_one(
-            {"id": tool["id"]},
-            _build_tool_document(tool),
-            upsert=True,
-        )
-
-        tool_module_ids = [m["id"] for m in journeys.get(tool["id"], [])]
-        if tool_module_ids:
-            await db.modules.delete_many(
-                {"tool_id": tool["id"], "id": {"$nin": tool_module_ids}}
-            )
-
-        for module in journeys.get(tool["id"], []):
-            await db.modules.replace_one(
-                {"id": module["id"]},
-                _build_module_document(tool["id"], module),
-                upsert=True,
-            )
-
-    # Remove stale tools/modules
-    current_tool_ids = [t["id"] for t in tools]
-    await db.tools.delete_many({"id": {"$nin": current_tool_ids}})
-    await db.modules.delete_many({"tool_id": {"$nin": current_tool_ids}})
-
-    await db.tools.update_many(
-        {"category_id": {"$exists": False}},
-        {"$set": {"category_id": "ai-learning"}},
-    )
-
-
-async def seed_site_config():
-    """Seed pricing_plans and faqs into MongoDB (business-critical data)."""
-    now = datetime.now(timezone.utc).isoformat()
-
-    for plan in deepcopy(SITE_CONFIG_SEED.get("pricing_plans", [])):
-        plan["updated_at"] = now
-        await db.pricing_plans.update_one(
-            {"id": plan["id"]}, {"$set": plan}, upsert=True
-        )
-
-    for faq in deepcopy(SITE_CONFIG_SEED.get("faqs", [])):
-        faq["updated_at"] = now
-        await db.faqs.update_one(
-            {"id": faq["id"]}, {"$set": faq}, upsert=True
-        )
-
-
-async def migrate_to_lms():
-    """Migrate legacy tools/modules into the new LMS collections (idempotent).
-
-    Only runs if the courses collection is empty — safe to call on every startup.
+    Args:
+        drop_first: If True, drops all existing tables before creating.
+                    Useful for local dev when the schema changes.
+                    The seed_local.py script sets this to True automatically
+                    for SQLite databases.
     """
-    if await db.courses.count_documents({}) > 0:
-        return  # already migrated
+    async with engine.begin() as conn:
+        if drop_first:
+            await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
 
-    logging.info("Running one-time LMS migration...")
-    now = datetime.now(timezone.utc).isoformat()
 
-    tools = CURRICULUM_DATA.get("tools", [])
-    journeys = CURRICULUM_DATA.get("journeys", {})
+async def get_db():
+    """FastAPI dependency that yields an async database session."""
+    async with async_session() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
 
-    for tool in tools:
-        tool_id = tool["id"]
-        modules = journeys.get(tool_id, [])
 
-        # ── Course ──
-        course = {
-            "id": tool_id,
-            "category_id": tool.get("category_id", "ai-learning"),
-            "name": tool.get("name", ""),
-            "locale_names": {},
-            "tagline": tool.get("tagline", ""),
-            "description": tool.get("description", ""),
-            "icon": tool.get("icon", ""),
-            "theme": tool.get("theme", {}),
-            "total_xp": tool.get("totalXP", 0),
-            "total_lessons": len(modules),
-            "difficulty": "beginner",
-            "available_languages": ["en"],
-            "default_language": "en",
-            "status": "published",
-            "version": 1,
-            "published_at": now,
-            "published_by": "system",
-            "tags": [],
-            "created_by": "system",
-            "created_at": now,
-            "updated_at": now,
-        }
-        await db.courses.update_one(
-            {"id": course["id"]}, {"$setOnInsert": course}, upsert=True
-        )
+# ── Helpers ───────────────────────────────────────────────
 
-        # ── Sections (by week if available) ──
-        weeks_seen = set()
-        for mod in modules:
-            wk = mod.get("week")
-            if wk and wk not in weeks_seen:
-                weeks_seen.add(wk)
-                section_id = f"{tool_id}-week-{wk}"
-                await db.sections.update_one(
-                    {"id": section_id},
-                    {"$setOnInsert": {
-                        "id": section_id,
-                        "course_id": tool_id,
-                        "title": f"Week {wk}",
-                        "locale_titles": {},
-                        "sort_order": wk,
-                        "is_active": True,
-                        "created_at": now,
-                        "updated_at": now,
-                    }},
-                    upsert=True,
-                )
+async def _get_or_create_category(
+    session: AsyncSession, slug: str, name: str, description: str
+) -> Category:
+    """Return existing category by slug or create a new one."""
+    result = await session.execute(select(Category).where(Category.slug == slug))
+    cat = result.scalars().first()
+    if cat:
+        return cat
+    cat = Category(slug=slug, name=name, description=description)
+    session.add(cat)
+    await session.flush()
+    return cat
 
-        # ── Lessons + Content + Assessments ──
-        for mod in modules:
-            content = mod.get("content") or mod
-            has_vocab = bool(
-                content.get("vocab") if isinstance(content, dict) else mod.get("vocab")
-            )
-            vocab_data = (
-                content.get("vocab", []) if isinstance(content, dict) else mod.get("vocab", [])
-            )
-            section_id = (
-                f"{tool_id}-week-{mod['week']}" if mod.get("week") else None
-            )
 
-            lesson = {
-                "id": mod["id"],
-                "course_id": tool_id,
-                "section_id": section_id,
-                "title": mod.get("title", ""),
-                "locale_titles": {},
-                "sort_order": mod.get("day") or 0,
-                "day": mod.get("day"),
-                "week": mod.get("week"),
-                "content_type": "mixed" if has_vocab else "text",
-                "has_quiz": bool(mod.get("quiz", {}).get("questions")),
-                "is_weekly_test": mod.get("is_weekly_test", False),
-                "level": mod.get("level", "beginner"),
-                "estimated_minutes": mod.get("minutes", 10),
-                "xp_reward": 100,
-                "available_languages": ["en"],
-                "status": "published",
-                "version": 1,
-                "media_asset_ids": [],
-                "tags": [],
-                "created_by": "system",
-                "created_at": now,
-                "updated_at": now,
-            }
-            await db.lessons.update_one(
-                {"id": lesson["id"]}, {"$setOnInsert": lesson}, upsert=True
-            )
+async def _get_or_create_course(
+    session: AsyncSession, slug: str, category_id: int, **kwargs
+) -> Course:
+    """Return existing course by slug or create a new one."""
+    result = await session.execute(select(Course).where(Course.slug == slug))
+    course = result.scalars().first()
+    if course:
+        for k, v in kwargs.items():
+            setattr(course, k, v)
+        course.category_id = category_id
+        await session.flush()
+        return course
+    course = Course(slug=slug, category_id=category_id, **kwargs)
+    session.add(course)
+    await session.flush()
+    return course
 
-            # Resolve content fields (handle flat vs nested)
-            expl = content.get("explanation", "") if isinstance(content, dict) else mod.get("explanation", "")
-            ex = content.get("example", "") if isinstance(content, dict) else mod.get("example", "")
-            act = content.get("activity", "") if isinstance(content, dict) else mod.get("activity", "")
-            bt = content.get("bengali_tip", "") if isinstance(content, dict) else mod.get("bengali_tip", "")
-            mg = content.get("micro_grammar", "") if isinstance(content, dict) else mod.get("micro_grammar", "")
-            dlg = content.get("dialogue", []) if isinstance(content, dict) else mod.get("dialogue", [])
-            st = content.get("speaking_task", "") if isinstance(content, dict) else mod.get("speaking_task", "")
 
-            # English content
-            lesson_content = {
-                "lesson_id": mod["id"],
-                "language": "en",
-                "version": 1,
-                "explanation": expl,
-                "explanation_format": "markdown",
-                "example": ex,
-                "activity": act,
-                "bengali_tip": None,
-                "micro_grammar": mg,
-                "vocab": vocab_data,
-                "dialogue": dlg,
-                "speaking_task": st,
-                "media_assets": [],
-                "downloadable_assets": [],
-                "status": "published",
-                "created_at": now,
-                "updated_at": now,
-            }
-            await db.lesson_contents.update_one(
-                {"lesson_id": mod["id"], "language": "en"},
-                {"$setOnInsert": lesson_content},
-                upsert=True,
-            )
+async def _get_or_create_module(
+    session: AsyncSession, slug: str, course_id: int, **kwargs
+) -> Module:
+    """Return existing module by slug or create a new one."""
+    result = await session.execute(select(Module).where(Module.slug == slug))
+    mod = result.scalars().first()
+    if mod:
+        for k, v in kwargs.items():
+            setattr(mod, k, v)
+        mod.course_id = course_id
+        await session.flush()
+        return mod
+    mod = Module(slug=slug, course_id=course_id, **kwargs)
+    session.add(mod)
+    await session.flush()
+    return mod
 
-            # Bengali content (if tips or vocab exist)
-            if bt or has_vocab:
-                bn_content = {
-                    "lesson_id": mod["id"],
-                    "language": "bn",
-                    "version": 1,
-                    "explanation": "",
-                    "explanation_format": "markdown",
-                    "example": "",
-                    "activity": "",
-                    "bengali_tip": bt,
-                    "micro_grammar": "",
-                    "vocab": vocab_data,
-                    "dialogue": [],
-                    "speaking_task": "",
-                    "media_assets": [],
-                    "downloadable_assets": [],
-                    "status": "draft",
-                    "created_at": now,
-                    "updated_at": now,
-                }
-                await db.lesson_contents.update_one(
-                    {"lesson_id": mod["id"], "language": "bn"},
-                    {"$setOnInsert": bn_content},
-                    upsert=True,
-                )
-                await db.lessons.update_one(
-                    {"id": mod["id"]},
-                    {"$addToSet": {"available_languages": "bn"}},
-                )
 
-            # Assessment
-            quiz = mod.get("quiz", {})
-            if quiz.get("questions"):
-                assess_id = f"assess-{mod['id']}"
-                assessment = {
-                    "id": assess_id,
-                    "type": "weekly_test" if mod.get("is_weekly_test") else "quiz",
-                    "lesson_id": mod["id"],
-                    "course_id": tool_id,
-                    "language": "en",
-                    "title": f"Quiz — {mod.get('title', '')}",
-                    "locale_titles": {},
-                    "questions": quiz["questions"],
-                    "passing_score": quiz.get("passingScore", 70),
-                    "total_points": len(quiz["questions"]) * 10,
-                    "max_attempts": 3,
-                    "shuffle_questions": False,
-                    "shuffle_options": True,
-                    "feedback": quiz.get("safeFeedback", {}),
-                    "locale_feedback": {},
-                    "hints": quiz.get("hints", []),
-                    "status": "published",
-                    "version": 1,
-                    "created_by": "system",
-                    "created_at": now,
-                    "updated_at": now,
-                }
-                await db.assessments.update_one(
-                    {"id": assess_id},
-                    {"$setOnInsert": assessment},
-                    upsert=True,
-                )
+async def _get_or_create_lesson(
+    session: AsyncSession, slug: str, module_id: int, **kwargs
+) -> Lesson:
+    """Return existing lesson by slug or create a new one."""
+    result = await session.execute(select(Lesson).where(Lesson.slug == slug))
+    lesson = result.scalars().first()
+    if lesson:
+        for k, v in kwargs.items():
+            setattr(lesson, k, v)
+        lesson.module_id = module_id
+        await session.flush()
+        return lesson
+    lesson = Lesson(slug=slug, module_id=module_id, **kwargs)
+    session.add(lesson)
+    await session.flush()
+    return lesson
 
-    logging.info(
-        "LMS migration complete: %d courses, %d lessons, %d assessments",
-        await db.courses.count_documents({}),
-        await db.lessons.count_documents({}),
-        await db.assessments.count_documents({}),
-    )
 
+# ── Seed Data ─────────────────────────────────────────────
 
 async def seed_data():
-    """Run all seed operations."""
-    await seed_curriculum_collections()
-    await seed_site_config()
-    await migrate_to_lms()
+    """Idempotent seeding of categories, courses, modules, lessons, content,
+    quizzes, pricing plans, and FAQs from JSON seed files."""
+    async with async_session() as session:
+        async with session.begin():
+            # ── 1. Categories ──
+            cat_map: dict[str, Category] = {}
+            for cat_data in CATEGORIES_DATA:
+                cat = await _get_or_create_category(
+                    session,
+                    slug=cat_data["id"],
+                    name=cat_data["name"],
+                    description=cat_data.get("description", ""),
+                )
+                cat_map[cat_data["id"]] = cat
+
+            # ── 2. Courses (from curriculum tools) ──
+            tools = CURRICULUM_DATA.get("tools", [])
+            journeys = CURRICULUM_DATA.get("journeys", {})
+            course_map: dict[str, Course] = {}
+
+            for sort_idx, tool in enumerate(tools):
+                tool_slug = tool["id"]
+                category_slug = tool.get("category_id", "ai-learning")
+                # Ensure the category exists (create if referenced but not in CATEGORIES_DATA)
+                if category_slug not in cat_map:
+                    cat_map[category_slug] = await _get_or_create_category(
+                        session, slug=category_slug, name=category_slug, description=""
+                    )
+                cat = cat_map[category_slug]
+
+                course = await _get_or_create_course(
+                    session,
+                    slug=tool_slug,
+                    category_id=cat.id,
+                    name=tool.get("name", tool_slug),
+                    description=tool.get("description", ""),
+                    tagline=tool.get("tagline", ""),
+                    icon=tool.get("icon", ""),
+                    theme_color=tool.get("theme", {}).get("color", "#10A37F"),
+                    total_xp=tool.get("totalXP", 0),
+                    sort_order=sort_idx,
+                    status="published",
+                    available_languages=["en"],
+                    created_by="system",
+                )
+                course_map[tool_slug] = course
+
+                # ── 3. Modules (grouped from journey items) ──
+                items = journeys.get(tool_slug, [])
+
+                # Determine grouping strategy: week-based or single default module
+                has_weeks = any(item.get("week") is not None for item in items)
+
+                if has_weeks:
+                    # Group items by week number
+                    week_groups: dict[int, list] = defaultdict(list)
+                    for item in items:
+                        week_num = item.get("week", 1)
+                        week_groups[week_num].append(item)
+
+                    for mod_idx, week_num in enumerate(sorted(week_groups.keys())):
+                        mod_slug = f"{tool_slug}-week-{week_num}"
+                        mod = await _get_or_create_module(
+                            session,
+                            slug=mod_slug,
+                            course_id=course.id,
+                            title=f"Week {week_num}",
+                            sort_order=mod_idx,
+                        )
+
+                        # ── 4. Lessons within this module ──
+                        for lesson_idx, item in enumerate(week_groups[week_num]):
+                            await _seed_lesson(session, mod, item, lesson_idx)
+                else:
+                    # Single default module for tools without week grouping
+                    mod_slug = f"{tool_slug}-core"
+                    mod = await _get_or_create_module(
+                        session,
+                        slug=mod_slug,
+                        course_id=course.id,
+                        title="Core Modules",
+                        sort_order=0,
+                    )
+
+                    for lesson_idx, item in enumerate(items):
+                        await _seed_lesson(session, mod, item, lesson_idx)
+
+            # ── 6. Pricing Plans ──
+            for idx, plan_data in enumerate(deepcopy(SITE_CONFIG_SEED.get("pricing_plans", []))):
+                plan_slug = plan_data["id"]
+                result = await session.execute(
+                    select(PricingPlan).where(PricingPlan.slug == plan_slug)
+                )
+                plan = result.scalars().first()
+                plan_kwargs = dict(
+                    name=plan_data.get("name", ""),
+                    tagline=plan_data.get("tagline"),
+                    price=plan_data.get("price", 0),
+                    original_price=plan_data.get("original_price"),
+                    currency=plan_data.get("currency", "INR"),
+                    emoji=plan_data.get("emoji"),
+                    color=plan_data.get("color"),
+                    gradient=plan_data.get("gradient"),
+                    light_bg=plan_data.get("light_bg"),
+                    badge=plan_data.get("badge"),
+                    popular=plan_data.get("popular", False),
+                    highlights=plan_data.get("highlights"),
+                    cta=plan_data.get("cta"),
+                    payment_link=plan_data.get("payment_link"),
+                    course_path=plan_data.get("course_path"),
+                    sort_order=plan_data.get("sort_order", idx),
+                    is_active=plan_data.get("is_active", True),
+                )
+                if plan:
+                    for k, v in plan_kwargs.items():
+                        setattr(plan, k, v)
+                else:
+                    plan = PricingPlan(slug=plan_slug, **plan_kwargs)
+                    session.add(plan)
+
+            # ── 7. FAQs ──
+            for idx, faq_data in enumerate(deepcopy(SITE_CONFIG_SEED.get("faqs", []))):
+                faq_slug = faq_data["id"]
+                # Match by question text for idempotency
+                result = await session.execute(
+                    select(FAQ).where(FAQ.question == faq_data["question"])
+                )
+                faq = result.scalars().first()
+                if faq:
+                    faq.answer = faq_data.get("answer", "")
+                    faq.sort_order = faq_data.get("sort_order", idx)
+                    faq.is_active = faq_data.get("is_active", True)
+                else:
+                    faq = FAQ(
+                        question=faq_data["question"],
+                        answer=faq_data.get("answer", ""),
+                        sort_order=faq_data.get("sort_order", idx),
+                        is_active=faq_data.get("is_active", True),
+                    )
+                    session.add(faq)
+
+            await session.flush()
+
+    logging.info("Seed data loaded successfully.")
+
+
+async def _seed_lesson(
+    session: AsyncSession, module: Module, item: dict, sort_idx: int
+):
+    """Seed a single lesson, its content, and quiz from a journey item dict."""
+    lesson_slug = item["id"]
+    explanation = item.get("explanation", "")
+    first_line = explanation.split("\n")[0] if explanation else ""
+
+    lesson = await _get_or_create_lesson(
+        session,
+        slug=lesson_slug,
+        module_id=module.id,
+        title=item.get("title", ""),
+        description=first_line,
+        sort_order=item.get("day", sort_idx),
+        level=item.get("level", "beginner"),
+        estimated_minutes=item.get("minutes", 10),
+        xp_reward=100,
+        week=item.get("week"),
+        day=item.get("day"),
+        is_weekly_test=item.get("is_weekly_test", False),
+        status="published",
+    )
+
+    # ── LessonContent (English) ──
+    result = await session.execute(
+        select(LessonContent).where(
+            LessonContent.lesson_id == lesson.id,
+            LessonContent.language == "en",
+        )
+    )
+    lc = result.scalars().first()
+    lc_kwargs = dict(
+        explanation=item.get("explanation", ""),
+        explanation_format="markdown",
+        example=item.get("example", ""),
+        activity=item.get("activity", ""),
+        bengali_tip=item.get("bengali_tip"),
+        micro_grammar=item.get("micro_grammar", ""),
+        speaking_task=item.get("speaking_task", ""),
+        vocab=item.get("vocab"),
+        dialogue=item.get("dialogue"),
+        status="published",
+    )
+    if lc:
+        for k, v in lc_kwargs.items():
+            setattr(lc, k, v)
+    else:
+        lc = LessonContent(
+            lesson_id=lesson.id,
+            language="en",
+            **lc_kwargs,
+        )
+        session.add(lc)
+
+    # ── Quiz + QuizQuestions ──
+    quiz_data = item.get("quiz", {})
+    questions = quiz_data.get("questions", [])
+    if questions:
+        result = await session.execute(
+            select(Quiz).where(Quiz.lesson_id == lesson.id)
+        )
+        quiz = result.scalars().first()
+        if not quiz:
+            quiz = Quiz(
+                lesson_id=lesson.id,
+                title=f"Quiz — {item.get('title', '')}",
+                passing_score=quiz_data.get("passingScore", 70),
+                max_attempts=3,
+                shuffle_questions=False,
+                shuffle_options=True,
+                status="published",
+            )
+            session.add(quiz)
+            await session.flush()
+
+            for q_idx, q in enumerate(questions):
+                # Normalise correctAnswer to string
+                correct = q.get("correctAnswer", "")
+                if isinstance(correct, bool):
+                    correct = str(correct).lower()
+                elif isinstance(correct, int):
+                    correct = str(correct)
+                else:
+                    correct = str(correct)
+
+                qq = QuizQuestion(
+                    quiz_id=quiz.id,
+                    question_text=q.get("question", ""),
+                    question_type=q.get("type", "mcq"),
+                    options=q.get("options"),
+                    correct_answer=correct,
+                    hint=q.get("explanation", ""),
+                    feedback=None,
+                    sort_order=q_idx,
+                )
+                session.add(qq)

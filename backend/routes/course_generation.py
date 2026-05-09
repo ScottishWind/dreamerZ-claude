@@ -7,16 +7,20 @@ Workflow:
   3. POST /lesson         — generate full content + quiz for one lesson
   4. POST /lesson/bulk    — generate all remaining lessons for a draft
   5. PUT  /drafts/{id}    — update a draft's blueprint (manual edits)
-  6. POST /publish/{id}   — materialise the draft as a real course
+  6. POST /publish/{id}   — publish the draft course (change status to published)
   7. GET  /drafts         — list drafts
   8. GET  /drafts/{id}    — read a single draft
   9. DELETE /drafts/{id}  — discard a draft
+
+Draft courses are stored directly in the courses table with status="draft".
+Publishing changes status from "draft" to "published" and materialises
+Module/Lesson/LessonContent/Quiz records from the blueprint JSON.
 """
 
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from pydantic import BaseModel, Field
 
 from services.auth_service import get_current_admin
@@ -35,11 +39,14 @@ logger = logging.getLogger(__name__)
 class BlueprintRequest(BaseModel):
     source_text: str
     filename: str = "admin-upload.txt"
-    source_filenames: list = []  # Names of all uploaded files
-    category_id: str = "ai-learning"  # Category to assign to the course
+    source_filenames: list[str] = []
+    # Accept either the integer primary key (sent by the admin UI's category
+    # dropdown) or the legacy slug string ("ai-learning").
+    category_id: int | str = "ai-learning"
     tone: str = "professional"
     module_count: int = 6
     lessons_per_module: int = 3
+    difficulty: Optional[str] = None
     course_title_hint: Optional[str] = None
     instructions: Optional[str] = None
 
@@ -50,7 +57,7 @@ class LessonRequest(BaseModel):
     run_critique: bool = True
     extra_instructions: Optional[str] = Field(
         None,
-        description="Optional extra guidance appended to the lesson prompt (e.g. critique feedback on a regen).",
+        description="Optional extra guidance appended to the lesson prompt.",
     )
 
 
@@ -97,16 +104,18 @@ async def parse_upload(file: UploadFile = File(...)):
 # ── 2. Generate blueprint ─────────────────────────────────
 @router.post("/blueprint")
 async def create_blueprint(
+    request: Request,
     payload: BlueprintRequest,
     current_admin: dict = Depends(get_current_admin),
 ):
-    """Run Claude to produce a course blueprint, then persist it as a draft."""
+    """Run Claude to produce a course blueprint, then persist it as a draft Course."""
     try:
         blueprint = await course_generator.generate_blueprint(
             source_text=payload.source_text,
             tone=payload.tone,
             module_count=payload.module_count,
             lessons_per_module=payload.lessons_per_module,
+            difficulty=payload.difficulty,
             course_title_hint=payload.course_title_hint,
             instructions=payload.instructions,
         )
@@ -118,21 +127,24 @@ async def create_blueprint(
         logger.exception("Blueprint generation failed")
         raise HTTPException(status_code=500, detail=f"Blueprint generation failed: {exc}")
 
-    draft = await course_generator.create_draft(
-        admin_username=current_admin.get("username", "admin"),
-        source_text=payload.source_text,
-        filename=payload.filename,
-        tone=payload.tone,
-        blueprint=blueprint,
-        category_id=payload.category_id,
-        source_filenames=payload.source_filenames,
-    )
+    try:
+        draft = await course_generator.create_draft(
+            admin_username=current_admin.get("username", "admin"),
+            source_text=payload.source_text,
+            filename=payload.filename,
+            tone=payload.tone,
+            blueprint=blueprint,
+            category_id=payload.category_id,
+            source_filenames=payload.source_filenames,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     return draft
 
 
 # ── 3. Generate a single lesson ───────────────────────────
 @router.post("/drafts/{draft_id}/lesson")
-async def generate_lesson(draft_id: str, payload: LessonRequest):
+async def generate_lesson(draft_id: int, payload: LessonRequest):
     draft = await course_generator.get_draft(draft_id)
     if not draft:
         raise HTTPException(status_code=404, detail="Draft not found")
@@ -182,7 +194,7 @@ async def generate_lesson(draft_id: str, payload: LessonRequest):
 
 # ── 4. Bulk generate all remaining lessons ────────────────
 @router.post("/drafts/{draft_id}/generate-all")
-async def generate_all_lessons(draft_id: str, run_critique: bool = False):
+async def generate_all_lessons(draft_id: int, run_critique: bool = False):
     draft = await course_generator.get_draft(draft_id)
     if not draft:
         raise HTTPException(status_code=404, detail="Draft not found")
@@ -222,7 +234,7 @@ async def generate_all_lessons(draft_id: str, run_critique: bool = False):
 
 # ── 5. Update draft blueprint (manual edits) ──────────────
 @router.put("/drafts/{draft_id}")
-async def update_draft(draft_id: str, payload: BlueprintUpdate):
+async def update_draft(draft_id: int, payload: BlueprintUpdate):
     ok = await course_generator.update_draft_blueprint(draft_id, payload.blueprint)
     if not ok:
         raise HTTPException(status_code=404, detail="Draft not found")
@@ -231,7 +243,7 @@ async def update_draft(draft_id: str, payload: BlueprintUpdate):
 
 # ── 5b. Update validation on a single lesson ──────────────
 @router.put("/drafts/{draft_id}/validation")
-async def update_lesson_validation(draft_id: str, payload: ValidationUpdate):
+async def update_lesson_validation(draft_id: int, payload: ValidationUpdate):
     """Overwrite or clear the validation payload for one lesson (no regen)."""
     ok = await course_generator.update_lesson_validation(
         draft_id=draft_id,
@@ -244,44 +256,54 @@ async def update_lesson_validation(draft_id: str, payload: ValidationUpdate):
     return {"detail": "Validation updated"}
 
 
-# ── 6. Publish draft → real course ────────────────────────
+# ── 6. Publish draft -> published course ─────────────────
 @router.post("/drafts/{draft_id}/publish")
 async def publish_draft_endpoint(
-    draft_id: str,
+    draft_id: int,
     current_admin: dict = Depends(get_current_admin),
 ):
+    """Publish a draft course by changing status to 'published'.
+
+    The course_generator.publish_draft service is responsible for:
+      - Materialising Module/Lesson/LessonContent/Quiz records from blueprint
+      - Updating course.status and all child records to 'published'
+    """
     try:
         result = await course_generator.publish_draft(
             draft_id=draft_id,
-            published_by=current_admin.get("username", "admin"),
+            admin_username=current_admin.get("username", "admin"),
         )
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:  # noqa: BLE001
         logger.exception("Publish failed")
         raise HTTPException(status_code=500, detail=f"Publish failed: {exc}")
 
-    return {"detail": "Course published", **result}
+    return result
 
 
-# ── 7-9. Draft CRUD helpers ───────────────────────────────
+# ── 7. List drafts ────────────────────────────────────────
 @router.get("/drafts")
-async def list_drafts_endpoint(mine_only: bool = False, current_admin: dict = Depends(get_current_admin)):
-    admin_username = current_admin.get("username") if mine_only else None
-    return await course_generator.list_drafts(admin_username)
+async def get_drafts(current_admin: dict = Depends(get_current_admin)):
+    drafts = await course_generator.list_drafts(
+        admin_username=current_admin.get("username"),
+    )
+    return drafts
 
 
+# ── 8. Get single draft ──────────────────────────────────
 @router.get("/drafts/{draft_id}")
-async def get_draft_endpoint(draft_id: str):
+async def get_draft(draft_id: int):
     draft = await course_generator.get_draft(draft_id)
     if not draft:
         raise HTTPException(status_code=404, detail="Draft not found")
     return draft
 
 
+# ── 9. Delete draft ──────────────────────────────────────
 @router.delete("/drafts/{draft_id}")
-async def delete_draft_endpoint(draft_id: str):
+async def delete_draft(draft_id: int):
     ok = await course_generator.delete_draft(draft_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Draft not found")
-    return {"detail": f"Draft '{draft_id}' deleted"}
+    return {"detail": "Draft deleted"}

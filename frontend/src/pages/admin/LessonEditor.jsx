@@ -3,6 +3,8 @@ import {
   FileText, HelpCircle, Sparkles, Paperclip, Save, RefreshCw,
   Upload, X, Plus, Trash2, AlertTriangle, CheckCircle2, Wand2,
 } from 'lucide-react';
+import { QuizEditor } from './QuizEditor';
+import { formatErrorDetail } from '../../lib/utils';
 
 const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
 
@@ -17,7 +19,7 @@ const adminFetch = async (path, token, options = {}) => {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || `Request failed (${res.status})`);
+    throw new Error(formatErrorDetail(err.detail) || `Request failed (${res.status})`);
   }
   return res.json();
 };
@@ -30,7 +32,7 @@ const adminUpload = async (path, token, formData) => {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || `Request failed (${res.status})`);
+    throw new Error(formatErrorDetail(err.detail) || `Request failed (${res.status})`);
   }
   return res.json();
 };
@@ -38,8 +40,8 @@ const adminUpload = async (path, token, formData) => {
 const TABS = [
   { id: 'content', label: 'Content', icon: FileText },
   { id: 'quiz', label: 'Quiz', icon: HelpCircle },
-  { id: 'ai', label: 'AI Actions', icon: Sparkles },
   { id: 'media', label: 'Media', icon: Paperclip },
+  { id: 'ai', label: 'AI Actions', icon: Sparkles },
 ];
 
 export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted }) => {
@@ -52,7 +54,6 @@ export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted
   // Content edit state
   const [contentForm, setContentForm] = useState({
     title: '',
-    level: 'beginner',
     estimated_minutes: 10,
     explanation: '',
     example: '',
@@ -89,7 +90,6 @@ export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted
       const enContent = data.contents?.en || {};
       setContentForm({
         title: data.title || '',
-        level: data.level || 'beginner',
         estimated_minutes: data.estimated_minutes || 10,
         explanation: enContent.explanation || '',
         example: enContent.example || '',
@@ -125,7 +125,6 @@ export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted
         method: 'PUT',
         body: JSON.stringify({
           title: contentForm.title,
-          level: contentForm.level,
           estimated_minutes: contentForm.estimated_minutes,
         }),
       });
@@ -257,7 +256,7 @@ export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted
         <div>
           <h2 className="text-xl font-bold text-slate-900">{lesson.title}</h2>
           <p className="text-xs text-slate-400 mt-1">
-            {lesson.level} · {lesson.estimated_minutes}min · ID: {lessonId}
+            {lesson.estimated_minutes}min · ID: {lessonId}
           </p>
         </div>
         <div>
@@ -319,28 +318,14 @@ export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted
       {/* Content tab */}
       {activeTab === 'content' && (
         <div className="space-y-4">
-          <div className="grid sm:grid-cols-3 gap-3">
-            <label className="block sm:col-span-2">
-              <span className="text-sm font-medium text-slate-700">Title</span>
-              <input
-                value={contentForm.title}
-                onChange={(e) => setContentForm(f => ({ ...f, title: e.target.value }))}
-                className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/40"
-              />
-            </label>
-            <label className="block">
-              <span className="text-sm font-medium text-slate-700">Level</span>
-              <select
-                value={contentForm.level}
-                onChange={(e) => setContentForm(f => ({ ...f, level: e.target.value }))}
-                className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-              >
-                <option value="beginner">Beginner</option>
-                <option value="intermediate">Intermediate</option>
-                <option value="advanced">Advanced</option>
-              </select>
-            </label>
-          </div>
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700">Title</span>
+            <input
+              value={contentForm.title}
+              onChange={(e) => setContentForm(f => ({ ...f, title: e.target.value }))}
+              className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/40"
+            />
+          </label>
 
           <label className="block">
             <span className="text-sm font-medium text-slate-700">Minutes</span>
@@ -400,47 +385,20 @@ export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted
 
       {/* Quiz tab */}
       {activeTab === 'quiz' && (
-        <div className="space-y-3">
-          {quizQuestions.length === 0 ? (
-            <div className="text-center text-slate-400 py-8 bg-slate-50 rounded-lg">
-              No quiz questions yet. Use AI Actions tab to generate them, or regenerate the lesson.
-            </div>
-          ) : (
-            quizQuestions.map((q, idx) => (
-              <div key={idx} className="bg-white border border-slate-200 rounded-lg p-4 space-y-2">
-                <div className="flex items-start justify-between gap-2">
-                  <span className="text-xs font-semibold text-slate-500">Question {idx + 1}</span>
-                </div>
-                <p className="text-sm font-medium text-slate-800">{q.question}</p>
-                <div className="space-y-1">
-                  {(q.options || []).map((opt, oIdx) => (
-                    <div
-                      key={oIdx}
-                      className={`text-xs px-3 py-2 rounded-lg ${
-                        oIdx === (q.correctAnswer ?? q.correct_index)
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : 'bg-slate-50 text-slate-600'
-                      }`}
-                    >
-                      {String.fromCharCode(65 + oIdx)}. {opt}
-                      {oIdx === (q.correctAnswer ?? q.correct_index) && (
-                        <CheckCircle2 className="w-3.5 h-3.5 inline-block ml-2" />
-                      )}
-                    </div>
-                  ))}
-                </div>
-                {q.explanation && (
-                  <p className="text-xs text-slate-500 italic pt-1">
-                    💡 {q.explanation}
-                  </p>
-                )}
-              </div>
-            ))
-          )}
-          <p className="text-xs text-slate-400 italic">
-            Quiz editing coming soon. For now, regenerate the lesson to update quiz questions.
-          </p>
-        </div>
+        <QuizEditor
+          lessonId={lessonId}
+          courseId={lesson.course_id}
+          initialQuestions={quizQuestions}
+          passingScore={lesson.assessment?.passing_score || 70}
+          token={token}
+          onSaved={(saved) => {
+            setQuizQuestions(saved?.questions || []);
+            setLesson((l) => (l ? { ...l, assessment: saved } : l));
+            showSuccess('Quiz saved');
+            onLessonUpdated?.(lessonId);
+          }}
+          onError={(msg) => setError(msg)}
+        />
       )}
 
       {/* AI Actions tab */}

@@ -1,8 +1,11 @@
 """Site config routes — pricing, FAQs, landing page data."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from database import db, SITE_CONFIG_SEED
+from database import get_db, SITE_CONFIG_SEED
+from models.sql_models import PricingPlan, FAQ
 
 router = APIRouter(prefix="/site", tags=["site"])
 
@@ -44,12 +47,50 @@ STATS = [
 ]
 
 
+def _plan_to_dict(plan: PricingPlan) -> dict:
+    """Convert a PricingPlan ORM object to the dict shape exposed by the public API."""
+    return {
+        "id": plan.slug,
+        "name": plan.name,
+        "tagline": plan.tagline,
+        "price": plan.price,
+        "original_price": plan.original_price,
+        "currency": plan.currency,
+        "emoji": plan.emoji,
+        "color": plan.color,
+        "gradient": plan.gradient,
+        "light_bg": plan.light_bg,
+        "badge": plan.badge,
+        "popular": plan.popular,
+        "highlights": plan.highlights,
+        "cta": plan.cta,
+        "payment_link": plan.payment_link,
+        "course_path": plan.course_path,
+        "sort_order": plan.sort_order,
+        "is_active": plan.is_active,
+    }
+
+
+def _faq_to_dict(faq: FAQ) -> dict:
+    """Convert a FAQ ORM object to the dict shape exposed by the public API."""
+    return {
+        "id": faq.id,
+        "question": faq.question,
+        "answer": faq.answer,
+        "sort_order": faq.sort_order,
+        "is_active": faq.is_active,
+    }
+
+
 @router.get("/pricing")
-async def get_pricing_plans():
+async def get_pricing_plans(session: AsyncSession = Depends(get_db)):
     """Return active pricing plans from DB, sorted by sort_order."""
-    plans = await db.pricing_plans.find(
-        {"is_active": True}, {"_id": 0}
-    ).sort("sort_order", 1).to_list(100)
+    result = await session.execute(
+        select(PricingPlan)
+        .where(PricingPlan.is_active == True)
+        .order_by(PricingPlan.sort_order)
+    )
+    plans = [_plan_to_dict(p) for p in result.scalars().all()]
     if not plans:
         plans = SITE_CONFIG_SEED.get("pricing_plans", [])
     bundle_link = SITE_CONFIG_SEED.get("bundle_payment_link", "#payment-bundle")
@@ -57,23 +98,26 @@ async def get_pricing_plans():
 
 
 @router.get("/faqs")
-async def get_faqs():
+async def get_faqs(session: AsyncSession = Depends(get_db)):
     """Return active FAQs from DB, sorted by sort_order."""
-    faqs = await db.faqs.find(
-        {"is_active": True}, {"_id": 0}
-    ).sort("sort_order", 1).to_list(100)
+    result = await session.execute(
+        select(FAQ)
+        .where(FAQ.is_active == True)
+        .order_by(FAQ.sort_order)
+    )
+    faqs = [_faq_to_dict(f) for f in result.scalars().all()]
     if not faqs:
         faqs = SITE_CONFIG_SEED.get("faqs", [])
     return faqs
 
 
 @router.get("/config")
-async def get_full_site_config():
+async def get_full_site_config(session: AsyncSession = Depends(get_db)):
     """Single call for all landing-page data."""
-    plans_data = await get_pricing_plans()
+    plans_data = await get_pricing_plans(session)
     return {
         "pricing": plans_data,
-        "faqs": await get_faqs(),
+        "faqs": await get_faqs(session),
         "trust_points": TRUST_POINTS,
         "benefits": BENEFITS,
         "stats": STATS,

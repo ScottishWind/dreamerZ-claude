@@ -3,9 +3,12 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy import select, or_
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import USERNAME_REGEX, EMAIL_REGEX, ADMIN_EMAILS, SUPPORTED_LANGUAGES, DEFAULT_LANGUAGE
-from database import db
+from database import get_db
+from models.sql_models import User
 from models.user import UserCreate, UserLogin, TokenResponse, UserInfoResponse, LanguageUpdate
 from services.auth_service import (
     authenticate_user,
@@ -23,7 +26,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/register", response_model=UserInfoResponse)
-async def register_user(user: UserCreate):
+async def register_user(user: UserCreate, session: AsyncSession = Depends(get_db)):
     username = user.username.strip().lower()
     email = user.email.strip().lower()
     password = user.password.strip()
@@ -44,9 +47,10 @@ async def register_user(user: UserCreate):
             detail="Password must be at least 8 characters long.",
         )
 
-    existing_user = await db.users.find_one(
-        {"$or": [{"username": username}, {"email": email}]}
+    result = await session.execute(
+        select(User).where(or_(User.username == username, User.email == email))
     )
+    existing_user = result.scalars().first()
     if existing_user:
         raise HTTPException(
             status_code=400, detail="Username or email is already in use."
@@ -57,17 +61,22 @@ async def register_user(user: UserCreate):
         lang = DEFAULT_LANGUAGE
 
     hashed_password = get_password_hash(password)
-    created_at = datetime.now(timezone.utc).isoformat()
-    user_doc = {
-        "username": username,
-        "email": email,
-        "hashed_password": hashed_password,
-        "preferred_language": lang,
-        "created_at": created_at,
-        "updated_at": created_at,
-        "last_login": None,
-    }
-    await db.users.insert_one(user_doc)
+    now = datetime.now(timezone.utc)
+
+    new_user = User(
+        username=username,
+        email=email,
+        hashed_password=hashed_password,
+        preferred_language=lang,
+        created_at=now,
+        updated_at=now,
+        last_login=None,
+    )
+    session.add(new_user)
+    await session.commit()
+    await session.refresh(new_user)
+
+    created_at = now.isoformat()
 
     # Send welcome email (fire-and-forget — don't block registration on email failure)
     try:
@@ -85,7 +94,7 @@ async def register_user(user: UserCreate):
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login_user(credentials: UserLogin, request: Request):
+async def login_user(credentials: UserLogin, request: Request, session: AsyncSession = Depends(get_db)):
     # Rate-limit login attempts per IP to prevent brute force
     client_ip = request.client.host if request.client else "unknown"
     check_auth_rate_limit(client_ip)
@@ -109,10 +118,15 @@ async def login_user(credentials: UserLogin, request: Request):
     token = create_access_token(
         {"sub": user["username"], "email": user["email"], "is_admin": admin, "lang": user_lang}
     )
-    await db.users.update_one(
-        {"_id": user["_id"]},
-        {"$set": {"last_login": datetime.now(timezone.utc).isoformat()}},
+
+    # Update last_login via SQLAlchemy
+    result = await session.execute(
+        select(User).where(User.username == user["username"])
     )
+    db_user = result.scalars().first()
+    if db_user:
+        db_user.last_login = datetime.now(timezone.utc)
+        await session.commit()
 
     return {
         "access_token": token,
@@ -139,6 +153,7 @@ async def get_profile(current_user: dict = Depends(get_current_user)):
 async def update_language(
     body: LanguageUpdate,
     current_user: dict = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
 ):
     """Update the authenticated user's preferred language."""
     lang = body.preferred_language.strip().lower()
@@ -147,10 +162,16 @@ async def update_language(
             status_code=400,
             detail=f"Unsupported language '{lang}'. Supported: {', '.join(_VALID_LANG_CODES)}",
         )
-    await db.users.update_one(
-        {"_id": current_user["_id"]},
-        {"$set": {"preferred_language": lang, "updated_at": datetime.now(timezone.utc).isoformat()}},
+
+    result = await session.execute(
+        select(User).where(User.username == current_user["username"])
     )
+    db_user = result.scalars().first()
+    if db_user:
+        db_user.preferred_language = lang
+        db_user.updated_at = datetime.now(timezone.utc)
+        await session.commit()
+
     return {"preferred_language": lang}
 
 

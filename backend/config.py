@@ -10,11 +10,10 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
 # ── Database ──────────────────────────────────────────────
-MONGO_URL = os.environ.get("MONGO_URL", "")
-DB_NAME = os.environ.get("DB_NAME", "dreamerz_beta")
-
-if not MONGO_URL:
-    raise ValueError("MONGO_URL environment variable is required")
+DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./dreamerz.db")
+# Fix Render's postgres:// prefix for SQLAlchemy
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
 
 # ── Authentication ────────────────────────────────────────
 JWT_SECRET = os.environ.get("JWT_SECRET", "")

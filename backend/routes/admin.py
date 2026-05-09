@@ -1,4 +1,7 @@
-"""Admin routes — user management, content management, media uploads (admin-only)."""
+"""Admin routes — user management, content management, media uploads (admin-only).
+
+Migrated to 4-level hierarchy: Category → Course → Module → Lesson.
+"""
 
 import logging
 import re
@@ -6,14 +9,19 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-import io
+from sqlalchemy import select, func, or_, delete
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from config import ADMIN_EMAILS
-from database import db
+from database import get_db
+from models.sql_models import (
+    User, Course, Module, Lesson, LessonContent, Quiz, QuizQuestion,
+    MediaAsset, Category, Enrollment, PricingPlan, FAQ,
+)
 from models.user import AdminUserResponse
-from services.auth_service import get_current_admin, is_admin
+from services.auth_service import get_current_admin
 from services import media_service
 from services import translation_service
 
@@ -21,40 +29,10 @@ router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(get_cu
 
 
 # ── Pydantic Models ──────────────────────────────────────
+
 class CategoryCreate(BaseModel):
     name: str
     description: Optional[str] = None
-
-
-class ModuleUpdate(BaseModel):
-    title: Optional[str] = None
-    level: Optional[str] = None
-    minutes: Optional[int] = None
-    day: Optional[int] = None
-    week: Optional[int] = None
-    description: Optional[str] = None
-
-
-class ModuleCreate(BaseModel):
-    id: str
-    tool_id: str
-    title: str
-    level: str = "beginner"
-    minutes: int = 10
-    day: Optional[int] = None
-    week: Optional[int] = None
-    description: str = ""
-
-
-class ToolUpdate(BaseModel):
-    name: Optional[str] = None
-    tagline: Optional[str] = None
-    description: Optional[str] = None
-    category_id: Optional[str] = None
-
-
-class ModuleReorder(BaseModel):
-    module_ids: list[str]
 
 
 class CourseUpdate(BaseModel):
@@ -70,19 +48,13 @@ class LessonUpdate(BaseModel):
     title: Optional[str] = None
     level: Optional[str] = None
     estimated_minutes: Optional[int] = None
-    content_type: Optional[str] = None
-    day: Optional[int] = None
-    week: Optional[int] = None
-    status: Optional[str] = None
-
-
-class LessonContentUpdate(BaseModel):
     explanation: Optional[str] = None
     example: Optional[str] = None
     activity: Optional[str] = None
-    bengali_tip: Optional[str] = None
-    micro_grammar: Optional[str] = None
-    speaking_task: Optional[str] = None
+
+
+class RoleUpdate(BaseModel):
+    is_admin: bool
 
 
 class AssetAttach(BaseModel):
@@ -93,25 +65,61 @@ class TranslateRequest(BaseModel):
     target_language: str = "bn"
 
 
-class SectionCreate(BaseModel):
-    title: str
-    description: Optional[str] = ""
-
-
-class SectionUpdate(BaseModel):
+class ToolModuleUpdate(BaseModel):
+    """Update payload for legacy PUT /tools/{tool_id}/modules/{module_id}."""
     title: Optional[str] = None
-    description: Optional[str] = None
-    sort_order: Optional[int] = None
+    level: Optional[str] = None
+    estimated_minutes: Optional[int] = None
+    explanation: Optional[str] = None
+    example: Optional[str] = None
+    activity: Optional[str] = None
 
 
-class LessonCreateAdmin(BaseModel):
+class QuizQuestionPayload(BaseModel):
+    """One quiz question, supporting multiple types.
+
+    type:
+      - "mcq"          : single-answer multiple choice (correctAnswer = int index)
+      - "multi-select" : checkbox multiple choice (correctAnswers = [int, ...])
+      - "true-false"   : correctAnswer = bool
+      - "short-answer" : descriptive (correctAnswer = string)
+    """
+    id: Optional[str] = None
+    type: str = "mcq"
+    question: str = ""
+    options: Optional[list[str]] = None
+    correctAnswer: Optional[object] = None
+    correctAnswers: Optional[list[int]] = None
+    explanation: Optional[str] = ""
+    image_asset_id: Optional[str] = None
+    image_url: Optional[str] = None
+
+
+class QuizUpdate(BaseModel):
+    questions: list[QuizQuestionPayload] = []
+    passing_score: Optional[int] = None
+    title: Optional[str] = None
+
+
+class LessonCreatePayload(BaseModel):
     title: str
-    level: str = "beginner"
-    estimated_minutes: int = 10
+    level: Optional[str] = "beginner"
+    estimated_minutes: Optional[int] = 10
     description: Optional[str] = ""
 
 
-class LessonRegenerateRequest(BaseModel):
+class LessonContentUpdatePayload(BaseModel):
+    explanation: Optional[str] = None
+    example: Optional[str] = None
+    activity: Optional[str] = None
+    bengali_tip: Optional[str] = None
+    micro_grammar: Optional[str] = None
+    speaking_task: Optional[str] = None
+    vocab: Optional[dict] = None
+    dialogue: Optional[dict] = None
+
+
+class LessonRegeneratePayload(BaseModel):
     instructions: Optional[str] = None
     source_text: Optional[str] = None
 
@@ -121,38 +129,73 @@ class LessonRegenerateRequest(BaseModel):
 # ══════════════════════════════════════════════════════════
 
 @router.post("/categories")
-async def create_category(payload: CategoryCreate):
-    """Create a new category. Auto-generates id from name via slugify."""
-    # Slugify the name to create an id
+async def create_category(
+    payload: CategoryCreate,
+    session: AsyncSession = Depends(get_db),
+):
+    """Create a new category. Auto-generates slug from name."""
     slug = re.sub(r"[^a-z0-9]+", "-", payload.name.lower()).strip("-")
     if not slug:
         raise HTTPException(status_code=400, detail="Invalid category name")
 
-    now = datetime.now(timezone.utc).isoformat()
+    # Check if already exists
+    result = await session.execute(select(Category).where(Category.slug == slug))
+    existing = result.scalars().first()
+    if existing:
+        return existing.to_dict()
 
-    category_doc = {
-        "id": slug,
-        "name": payload.name,
-        "description": payload.description or "",
-        "created_at": now,
-        "updated_at": now,
-    }
-
-    # Upsert by id to avoid duplicates
-    result = await db.categories.update_one(
-        {"id": slug},
-        {"$setOnInsert": category_doc},
-        upsert=True,
+    cat = Category(
+        slug=slug,
+        name=payload.name,
+        description=payload.description or "",
     )
-
-    return category_doc
+    session.add(cat)
+    await session.commit()
+    await session.refresh(cat)
+    return cat.to_dict()
 
 
 @router.get("/categories")
-async def list_categories():
+async def list_categories(session: AsyncSession = Depends(get_db)):
     """List all categories (admin view)."""
-    categories = await db.categories.find({}, {"_id": 0}).to_list(1000)
-    return categories
+    result = await session.execute(
+        select(Category).order_by(Category.sort_order)
+    )
+    return [c.to_dict() for c in result.scalars().all()]
+
+
+@router.delete("/categories/{category_id}")
+async def delete_category(
+    category_id: str,
+    session: AsyncSession = Depends(get_db),
+):
+    """Delete a category. Refuses if any courses are still attached.
+
+    `category_id` may be either the integer primary key or the slug.
+    """
+    if category_id.isdigit():
+        stmt = select(Category).where(Category.id == int(category_id))
+    else:
+        stmt = select(Category).where(Category.slug == category_id)
+    result = await session.execute(stmt)
+    category = result.scalars().first()
+    if not category:
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    # Refuse if any courses still reference this category
+    course_count = await session.execute(
+        select(func.count(Course.id)).where(Course.category_id == category.id)
+    )
+    n_courses = course_count.scalar_one()
+    if n_courses > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Category has {n_courses} course(s). Delete or move them first.",
+        )
+
+    await session.delete(category)
+    await session.commit()
+    return {"detail": f"Category '{category.slug}' deleted"}
 
 
 # ══════════════════════════════════════════════════════════
@@ -164,41 +207,44 @@ async def list_users(
     search: Optional[str] = Query(None, max_length=100),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
+    session: AsyncSession = Depends(get_db),
 ):
     """List all registered users with optional search."""
-    query = {}
+    stmt = select(User)
     if search:
         search = search.strip()
-        query = {
-            "$or": [
-                {"username": {"$regex": search, "$options": "i"}},
-                {"email": {"$regex": search, "$options": "i"}},
-            ]
-        }
+        pattern = f"%{search}%"
+        stmt = stmt.where(
+            or_(
+                User.username.ilike(pattern),
+                User.email.ilike(pattern),
+            )
+        )
+    stmt = stmt.order_by(User.created_at.desc()).offset(skip).limit(limit)
+    result = await session.execute(stmt)
+    users = result.scalars().all()
 
-    users = await db.users.find(
-        query, {"_id": 0, "hashed_password": 0}
-    ).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
-
-    total = await db.users.count_documents(query)
-
+    out = []
     for u in users:
-        email = u.get("email", "").lower()
+        email = (u.email or "").lower()
         is_super = email in ADMIN_EMAILS
-        u["is_admin"] = is_super or bool(u.get("is_admin", False))
-        u["is_super_admin"] = is_super  # UI uses this to prevent demoting super-admins
-
-    return users
+        out.append({
+            "username": u.username,
+            "email": u.email,
+            "created_at": u.created_at.isoformat() if u.created_at else "",
+            "last_login": u.last_login.isoformat() if u.last_login else None,
+            "is_admin": is_super or bool(u.is_admin),
+            "is_super_admin": is_super,
+            "preferred_language": u.preferred_language or "en",
+        })
+    return out
 
 
 @router.get("/users/count")
-async def user_count():
-    total = await db.users.count_documents({})
+async def user_count(session: AsyncSession = Depends(get_db)):
+    result = await session.execute(select(func.count(User.id)))
+    total = result.scalar_one()
     return {"total": total}
-
-
-class RoleUpdate(BaseModel):
-    is_admin: bool
 
 
 @router.put("/users/{username}/role")
@@ -206,13 +252,9 @@ async def update_user_role(
     username: str,
     body: RoleUpdate,
     current_admin: dict = Depends(get_current_admin),
+    session: AsyncSession = Depends(get_db),
 ):
-    """Promote or demote a user to/from admin role.
-
-    Only super-admins (those in ADMIN_EMAILS) can change roles.
-    Super-admin accounts cannot be demoted.
-    """
-    # Only super-admins (env-var list) can manage roles
+    """Promote or demote a user to/from admin role."""
     caller_email = current_admin.get("email", "").lower()
     if caller_email not in ADMIN_EMAILS:
         raise HTTPException(
@@ -221,42 +263,44 @@ async def update_user_role(
         )
 
     username = username.strip().lower()
-    user = await db.users.find_one({"username": username})
+    result = await session.execute(select(User).where(User.username == username))
+    user = result.scalars().first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Prevent demoting a super-admin
-    user_email = user.get("email", "").lower()
+    user_email = (user.email or "").lower()
     if user_email in ADMIN_EMAILS and not body.is_admin:
         raise HTTPException(
             status_code=403,
             detail="Cannot demote a super-admin (remove from ADMIN_EMAILS env var instead)",
         )
 
-    await db.users.update_one(
-        {"username": username},
-        {"$set": {
-            "is_admin": body.is_admin,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }},
-    )
+    user.is_admin = body.is_admin
+    user.updated_at = datetime.now(timezone.utc)
+    await session.commit()
 
     action = "promoted to admin" if body.is_admin else "demoted to regular user"
     return {"detail": f"User '{username}' {action}"}
 
 
 @router.delete("/users/{username}")
-async def delete_user(username: str):
+async def delete_user(
+    username: str,
+    session: AsyncSession = Depends(get_db),
+):
     username = username.strip().lower()
-    user = await db.users.find_one({"username": username})
+    result = await session.execute(select(User).where(User.username == username))
+    user = result.scalars().first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if user.get("email", "").lower() in ADMIN_EMAILS:
+    if (user.email or "").lower() in ADMIN_EMAILS:
         raise HTTPException(status_code=403, detail="Cannot delete an admin account")
 
-    await db.users.delete_one({"username": username})
-    await db.enrollments.delete_many({"username": username})
+    # Delete enrollments first, then the user (cascade handles the rest)
+    await session.execute(delete(Enrollment).where(Enrollment.user_id == user.id))
+    await session.delete(user)
+    await session.commit()
 
     return {"detail": f"User '{username}' deleted successfully"}
 
@@ -266,89 +310,125 @@ async def delete_user(username: str):
 # ══════════════════════════════════════════════════════════
 
 @router.get("/tools")
-async def admin_list_tools():
-    pipeline = [
-        {"$lookup": {"from": "modules", "localField": "id", "foreignField": "tool_id", "as": "modules"}},
-        {"$addFields": {"module_count": {"$size": "$modules"}}},
-        {"$project": {"_id": 0, "modules": 0}},
-    ]
-    return await db.tools.aggregate(pipeline).to_list(100)
-
-
-@router.put("/tools/{tool_id}")
-async def update_tool(tool_id: str, update: ToolUpdate):
-    existing = await db.tools.find_one({"id": tool_id})
-    if not existing:
-        raise HTTPException(status_code=404, detail="Tool not found")
-    update_data = {k: v for k, v in update.dict().items() if v is not None}
-    if not update_data:
-        raise HTTPException(status_code=400, detail="No fields to update")
-    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
-    await db.tools.update_one({"id": tool_id}, {"$set": update_data})
-    return {"detail": f"Tool '{tool_id}' updated", **update_data}
-
-
-@router.get("/tools/{tool_id}/modules")
-async def admin_list_modules(tool_id: str):
-    return await db.modules.find(
-        {"tool_id": tool_id}, {"_id": 0}
-    ).sort([("week", 1), ("day", 1)]).to_list(1000)
-
-
-@router.post("/modules")
-async def create_module(module: ModuleCreate):
-    existing = await db.modules.find_one({"id": module.id})
-    if existing:
-        raise HTTPException(status_code=409, detail="Module ID already exists")
-    tool = await db.tools.find_one({"id": module.tool_id})
-    if not tool:
-        raise HTTPException(status_code=404, detail="Tool not found")
-    doc = {
-        "id": module.id, "tool_id": module.tool_id, "title": module.title,
-        "level": module.level, "minutes": module.minutes,
-        "day": module.day, "week": module.week, "description": module.description,
-        "isAdvanced": module.level == "advanced", "is_weekly_test": False,
-        "content": {"explanation": "", "example": "", "activity": ""},
-        "quiz": {}, "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    await db.modules.insert_one(doc)
-    del doc["_id"]
-    return doc
-
-
-@router.put("/modules/{module_id}")
-async def update_module(module_id: str, update: ModuleUpdate):
-    existing = await db.modules.find_one({"id": module_id})
-    if not existing:
-        raise HTTPException(status_code=404, detail="Module not found")
-    update_data = {k: v for k, v in update.dict().items() if v is not None}
-    if not update_data:
-        raise HTTPException(status_code=400, detail="No fields to update")
-    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
-    if "level" in update_data:
-        update_data["isAdvanced"] = update_data["level"] == "advanced"
-    await db.modules.update_one({"id": module_id}, {"$set": update_data})
-    return {"detail": f"Module '{module_id}' updated", **update_data}
-
-
-@router.delete("/modules/{module_id}")
-async def delete_module(module_id: str):
-    result = await db.modules.delete_one({"id": module_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Module not found")
-    return {"detail": f"Module '{module_id}' deleted"}
-
-
-@router.put("/tools/{tool_id}/modules/reorder")
-async def reorder_modules(tool_id: str, reorder: ModuleReorder):
-    tool = await db.tools.find_one({"id": tool_id})
-    if not tool:
-        raise HTTPException(status_code=404, detail="Tool not found")
-    for idx, module_id in enumerate(reorder.module_ids, start=1):
-        await db.modules.update_one(
-            {"id": module_id, "tool_id": tool_id}, {"$set": {"day": idx}}
+async def admin_list_tools(session: AsyncSession = Depends(get_db)):
+    """List courses with lesson counts (legacy 'tools' endpoint)."""
+    stmt = (
+        select(
+            Course,
+            func.count(Lesson.id).label("module_count"),
         )
-    return {"detail": f"Reordered {len(reorder.module_ids)} modules"}
+        .outerjoin(Module, Module.course_id == Course.id)
+        .outerjoin(Lesson, Lesson.module_id == Module.id)
+        .options(selectinload(Course.category))
+        .group_by(Course.id)
+        .order_by(Course.sort_order)
+    )
+    result = await session.execute(stmt)
+    rows = result.all()
+
+    out = []
+    for course, lesson_count in rows:
+        d = course.to_dict()
+        d["id"] = course.slug  # frontend expects 'id' = slug
+        d["module_count"] = lesson_count
+        out.append(d)
+    return out
+
+
+@router.get("/tools/{tool_id}")
+async def admin_get_tool(
+    tool_id: str,
+    session: AsyncSession = Depends(get_db),
+):
+    """Get single course by slug, with its lessons (flattened from modules)."""
+    result = await session.execute(
+        select(Course).where(Course.slug == tool_id)
+    )
+    course = result.scalars().first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Tool not found")
+
+    # Fetch lessons through modules
+    lesson_result = await session.execute(
+        select(Lesson)
+        .join(Module, Lesson.module_id == Module.id)
+        .where(Module.course_id == course.id)
+        .order_by(Lesson.week.nulls_last(), Lesson.day.nulls_last(), Lesson.sort_order)
+    )
+    lessons = lesson_result.scalars().all()
+
+    d = course.to_dict()
+    d["id"] = course.slug
+    d["modules"] = []  # legacy name for lessons within a tool
+    for les in lessons:
+        ld = les.to_dict()
+        ld["id"] = les.slug
+        d["modules"].append(ld)
+    return d
+
+
+@router.put("/tools/{tool_id}/modules/{module_id}")
+async def update_tool_module(
+    tool_id: str,
+    module_id: str,
+    update: ToolModuleUpdate,
+    session: AsyncSession = Depends(get_db),
+):
+    """Update lesson content. tool_id is Course slug, module_id is Lesson slug."""
+    # Verify the course exists
+    result = await session.execute(select(Course).where(Course.slug == tool_id))
+    course = result.scalars().first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Tool not found")
+
+    # Find the lesson by slug within this course's modules
+    result = await session.execute(
+        select(Lesson)
+        .join(Module, Lesson.module_id == Module.id)
+        .where(Lesson.slug == module_id, Module.course_id == course.id)
+    )
+    lesson = result.scalars().first()
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Module (lesson) not found")
+
+    update_data = {k: v for k, v in update.model_dump().items() if v is not None}
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    # Split: lesson-level fields vs content fields
+    lesson_fields = {"title", "level", "estimated_minutes"}
+    content_fields = {"explanation", "example", "activity"}
+
+    changed_lesson = {k: v for k, v in update_data.items() if k in lesson_fields}
+    changed_content = {k: v for k, v in update_data.items() if k in content_fields}
+
+    if changed_lesson:
+        for k, v in changed_lesson.items():
+            setattr(lesson, k, v)
+        lesson.updated_at = datetime.now(timezone.utc)
+
+    if changed_content:
+        lc_result = await session.execute(
+            select(LessonContent).where(
+                LessonContent.lesson_id == lesson.id,
+                LessonContent.language == "en",
+            )
+        )
+        lc = lc_result.scalars().first()
+        if lc:
+            for k, v in changed_content.items():
+                setattr(lc, k, v)
+            lc.updated_at = datetime.now(timezone.utc)
+        else:
+            lc = LessonContent(
+                lesson_id=lesson.id,
+                language="en",
+                **changed_content,
+            )
+            session.add(lc)
+
+    await session.commit()
+    return {"detail": f"Module '{module_id}' updated", **update_data}
 
 
 # ══════════════════════════════════════════════════════════
@@ -356,283 +436,502 @@ async def reorder_modules(tool_id: str, reorder: ModuleReorder):
 # ══════════════════════════════════════════════════════════
 
 @router.get("/courses")
-async def list_courses(status: Optional[str] = None):
+async def list_courses(
+    status: Optional[str] = None,
+    session: AsyncSession = Depends(get_db),
+):
     """List all LMS courses with lesson counts."""
-    match = {}
+    stmt = (
+        select(
+            Course,
+            func.count(Lesson.id).label("lesson_count"),
+        )
+        .outerjoin(Module, Module.course_id == Course.id)
+        .outerjoin(Lesson, Lesson.module_id == Module.id)
+        .options(selectinload(Course.category))
+        .group_by(Course.id)
+    )
     if status:
-        match["status"] = status
-    pipeline = [
-        {"$match": match},
-        {"$lookup": {"from": "lessons", "localField": "id", "foreignField": "course_id", "as": "lessons_list"}},
-        {"$addFields": {"lesson_count": {"$size": "$lessons_list"}}},
-        {"$project": {"_id": 0, "lessons_list": 0}},
-        {"$sort": {"created_at": -1}},
-    ]
-    return await db.courses.aggregate(pipeline).to_list(100)
+        stmt = stmt.where(Course.status == status)
+    stmt = stmt.order_by(Course.created_at.desc())
+
+    result = await session.execute(stmt)
+    rows = result.all()
+
+    out = []
+    for course, lesson_count in rows:
+        d = course.to_dict()
+        d["id"] = course.slug
+        d["lesson_count"] = lesson_count
+        out.append(d)
+    return out
 
 
 @router.get("/courses/{course_id}")
-async def get_course(course_id: str):
-    course = await db.courses.find_one({"id": course_id}, {"_id": 0})
+async def get_course(
+    course_id: str,
+    session: AsyncSession = Depends(get_db),
+):
+    result = await session.execute(select(Course).where(Course.slug == course_id))
+    course = result.scalars().first()
     if not course:
         raise HTTPException(status_code=404, detail="Course not found")
-    return course
+    d = course.to_dict()
+    d["id"] = course.slug
+    return d
 
 
 @router.put("/courses/{course_id}")
-async def update_course(course_id: str, update: CourseUpdate):
-    existing = await db.courses.find_one({"id": course_id})
-    if not existing:
-        raise HTTPException(status_code=404, detail="Course not found")
-    update_data = {k: v for k, v in update.dict().items() if v is not None}
-    if not update_data:
-        raise HTTPException(status_code=400, detail="No fields to update")
-    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
-    await db.courses.update_one({"id": course_id}, {"$set": update_data})
-    return {"detail": f"Course '{course_id}' updated", **update_data}
-
-
-@router.delete("/courses/{course_id}")
-async def delete_course(course_id: str):
-    """Cascade-delete a course and all its sections, lessons, contents, assessments."""
-    existing = await db.courses.find_one({"id": course_id})
-    if not existing:
-        raise HTTPException(status_code=404, detail="Course not found")
-
-    # Find all lessons to delete their contents/assessments
-    lessons = await db.lessons.find({"course_id": course_id}, {"id": 1}).to_list(1000)
-    lesson_ids = [l["id"] for l in lessons]
-
-    if lesson_ids:
-        await db.lesson_contents.delete_many({"lesson_id": {"$in": lesson_ids}})
-        await db.assessments.delete_many({"lesson_id": {"$in": lesson_ids}})
-
-    await db.lessons.delete_many({"course_id": course_id})
-    await db.sections.delete_many({"course_id": course_id})
-    await db.courses.delete_one({"id": course_id})
-
-    return {"detail": f"Course '{course_id}' and all content deleted"}
-
-
-# ══════════════════════════════════════════════════════════
-# LMS — SECTIONS (MODULES)
-# ══════════════════════════════════════════════════════════
-
-@router.get("/courses/{course_id}/sections")
-async def list_sections(course_id: str):
-    """List all sections for a course, ordered by sort_order."""
-    sections = await db.sections.find(
-        {"course_id": course_id}, {"_id": 0}
-    ).sort("sort_order", 1).to_list(100)
-    return sections
-
-
-@router.post("/courses/{course_id}/sections")
-async def create_section(course_id: str, payload: SectionCreate):
-    """Create a new section under a course."""
-    course = await db.courses.find_one({"id": course_id})
+async def update_course(
+    course_id: str,
+    update: CourseUpdate,
+    session: AsyncSession = Depends(get_db),
+):
+    result = await session.execute(select(Course).where(Course.slug == course_id))
+    course = result.scalars().first()
     if not course:
         raise HTTPException(status_code=404, detail="Course not found")
 
-    # Determine next sort_order
-    existing_count = await db.sections.count_documents({"course_id": course_id})
-    sort_order = existing_count + 1
-
-    import uuid
-    section_id = f"{course_id}-m{uuid.uuid4().hex[:6]}"
-    now = datetime.now(timezone.utc).isoformat()
-
-    doc = {
-        "id": section_id,
-        "course_id": course_id,
-        "title": payload.title,
-        "description": payload.description or "",
-        "sort_order": sort_order,
-        "created_at": now,
-        "updated_at": now,
-    }
-    await db.sections.insert_one(doc)
-    doc.pop("_id", None)
-    return doc
-
-
-@router.put("/sections/{section_id}")
-async def update_section(section_id: str, update: SectionUpdate):
-    existing = await db.sections.find_one({"id": section_id})
-    if not existing:
-        raise HTTPException(status_code=404, detail="Section not found")
-    update_data = {k: v for k, v in update.dict().items() if v is not None}
+    update_data = {k: v for k, v in update.model_dump().items() if v is not None}
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
-    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
-    await db.sections.update_one({"id": section_id}, {"$set": update_data})
-    return {"detail": f"Section '{section_id}' updated", **update_data}
+
+    # category_id might come as a slug string from the frontend
+    if "category_id" in update_data:
+        cat_slug = update_data.pop("category_id")
+        cat_result = await session.execute(
+            select(Category).where(Category.slug == cat_slug)
+        )
+        cat = cat_result.scalars().first()
+        if cat:
+            course.category_id = cat.id
+
+    for k, v in update_data.items():
+        if hasattr(course, k):
+            setattr(course, k, v)
+    course.updated_at = datetime.now(timezone.utc)
+
+    await session.commit()
+    return {"detail": f"Course '{course_id}' updated", **update.model_dump(exclude_none=True)}
+
+
+@router.delete("/courses/{course_id}")
+async def delete_course(
+    course_id: str,
+    session: AsyncSession = Depends(get_db),
+):
+    """Cascade-delete a course and all its modules, lessons, content, quizzes."""
+    result = await session.execute(select(Course).where(Course.slug == course_id))
+    course = result.scalars().first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    # ORM cascade handles modules -> lessons -> lesson_contents, quizzes, media, etc.
+    await session.delete(course)
+    await session.commit()
+    return {"detail": f"Course '{course_id}' and all content deleted"}
 
 
 @router.delete("/sections/{section_id}")
-async def delete_section(section_id: str):
-    """Cascade-delete a section and all its lessons + contents + assessments."""
-    existing = await db.sections.find_one({"id": section_id})
-    if not existing:
+async def delete_section(
+    section_id: str,
+    session: AsyncSession = Depends(get_db),
+):
+    """Cascade-delete a 'section' (Module row) and all its lessons + content.
+
+    The frontend uses 'section' for what the SQL schema calls Module.
+    """
+    result = await session.execute(select(Module).where(Module.slug == section_id))
+    module = result.scalars().first()
+    if not module:
         raise HTTPException(status_code=404, detail="Section not found")
 
-    lessons = await db.lessons.find({"section_id": section_id}, {"id": 1}).to_list(500)
-    lesson_ids = [l["id"] for l in lessons]
-
-    if lesson_ids:
-        await db.lesson_contents.delete_many({"lesson_id": {"$in": lesson_ids}})
-        await db.assessments.delete_many({"lesson_id": {"$in": lesson_ids}})
-
-    await db.lessons.delete_many({"section_id": section_id})
-    await db.sections.delete_one({"id": section_id})
-
+    await session.delete(module)
+    await session.commit()
     return {"detail": f"Section '{section_id}' and all lessons deleted"}
 
 
 # ══════════════════════════════════════════════════════════
-# LMS — LESSONS
+# LMS — LESSONS (Lesson model in SQL)
 # ══════════════════════════════════════════════════════════
 
+@router.get("/courses/{course_id}/sections")
+async def list_sections(
+    course_id: str,
+    session: AsyncSession = Depends(get_db),
+):
+    """List all 'sections' (Module rows) for a course, ordered by sort_order.
+
+    The frontend uses 'section' as its display term for what the SQL schema
+    calls Module.
+    """
+    result = await session.execute(select(Course).where(Course.slug == course_id))
+    course = result.scalars().first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    mod_result = await session.execute(
+        select(Module)
+        .where(Module.course_id == course.id)
+        .order_by(Module.sort_order)
+    )
+    modules = mod_result.scalars().all()
+
+    return [
+        {
+            "id": m.slug,
+            "course_id": course_id,
+            "title": m.title,
+            "description": m.description or "",
+            "sort_order": m.sort_order,
+            "status": m.status,
+        }
+        for m in modules
+    ]
+
+
 @router.get("/courses/{course_id}/lessons")
-async def list_lessons(course_id: str):
+async def list_lessons(
+    course_id: str,
+    session: AsyncSession = Depends(get_db),
+):
     """List all lessons for a course, ordered by sort_order."""
-    lessons = await db.lessons.find(
-        {"course_id": course_id}, {"_id": 0}
-    ).sort([("week", 1), ("sort_order", 1)]).to_list(1000)
+    result = await session.execute(select(Course).where(Course.slug == course_id))
+    course = result.scalars().first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
 
-    # Attach media asset count for each lesson
-    for lesson in lessons:
-        lesson["media_count"] = await db.media_assets.count_documents(
-            {"id": {"$in": lesson.get("media_asset_ids", [])}}
+    lesson_result = await session.execute(
+        select(Lesson)
+        .join(Module, Lesson.module_id == Module.id)
+        .where(Module.course_id == course.id)
+        .options(selectinload(Lesson.module))
+        .order_by(Lesson.week.nulls_last(), Lesson.sort_order)
+    )
+    lessons = lesson_result.scalars().all()
+
+    out = []
+    for les in lessons:
+        d = les.to_dict()
+        d["id"] = les.slug
+        d["course_id"] = course_id
+        # Frontend groups lessons by section_id (= Module.slug)
+        d["section_id"] = les.module.slug if les.module else None
+
+        # Count attached media
+        media_count_result = await session.execute(
+            select(func.count(MediaAsset.id)).where(MediaAsset.lesson_id == les.id)
         )
+        d["media_count"] = media_count_result.scalar_one()
+        out.append(d)
+    return out
 
-    return lessons
 
+@router.put("/courses/{course_id}/lessons/{lesson_id}")
+async def update_lesson(
+    course_id: str,
+    lesson_id: str,
+    update: LessonUpdate,
+    session: AsyncSession = Depends(get_db),
+):
+    """Update a lesson + its English lesson content."""
+    # Verify course
+    course_result = await session.execute(select(Course).where(Course.slug == course_id))
+    course = course_result.scalars().first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
 
-@router.get("/lessons/{lesson_id}")
-async def get_lesson(lesson_id: str):
-    lesson = await db.lessons.find_one({"id": lesson_id}, {"_id": 0})
+    # Find lesson within course's modules
+    result = await session.execute(
+        select(Lesson)
+        .join(Module, Lesson.module_id == Module.id)
+        .where(Lesson.slug == lesson_id, Module.course_id == course.id)
+    )
+    lesson = result.scalars().first()
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
 
-    # Attach content for all languages
-    contents = await db.lesson_contents.find(
-        {"lesson_id": lesson_id}, {"_id": 0}
-    ).to_list(10)
-    lesson["contents"] = {c["language"]: c for c in contents}
-
-    # Attach assessment if exists
-    assessment = await db.assessments.find_one(
-        {"lesson_id": lesson_id}, {"_id": 0}
-    )
-    lesson["assessment"] = assessment
-
-    # Attach media assets
-    asset_ids = lesson.get("media_asset_ids", [])
-    if asset_ids:
-        assets = await db.media_assets.find(
-            {"id": {"$in": asset_ids}}, {"_id": 0}
-        ).to_list(100)
-        lesson["media_assets"] = assets
-    else:
-        lesson["media_assets"] = []
-
-    return lesson
-
-
-@router.put("/lessons/{lesson_id}")
-async def update_lesson(lesson_id: str, update: LessonUpdate):
-    existing = await db.lessons.find_one({"id": lesson_id})
-    if not existing:
-        raise HTTPException(status_code=404, detail="Lesson not found")
-    update_data = {k: v for k, v in update.dict().items() if v is not None}
+    update_data = {k: v for k, v in update.model_dump().items() if v is not None}
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
-    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
-    await db.lessons.update_one({"id": lesson_id}, {"$set": update_data})
+
+    # Lesson-level fields
+    lesson_fields = {"title", "level", "estimated_minutes"}
+    content_fields = {"explanation", "example", "activity"}
+
+    changed_lesson = {k: v for k, v in update_data.items() if k in lesson_fields}
+    changed_content = {k: v for k, v in update_data.items() if k in content_fields}
+
+    if changed_lesson:
+        for k, v in changed_lesson.items():
+            setattr(lesson, k, v)
+        lesson.updated_at = datetime.now(timezone.utc)
+
+    if changed_content:
+        lc_result = await session.execute(
+            select(LessonContent).where(
+                LessonContent.lesson_id == lesson.id,
+                LessonContent.language == "en",
+            )
+        )
+        lc = lc_result.scalars().first()
+        if lc:
+            for k, v in changed_content.items():
+                setattr(lc, k, v)
+            lc.updated_at = datetime.now(timezone.utc)
+        else:
+            lc = LessonContent(
+                lesson_id=lesson.id,
+                language="en",
+                **changed_content,
+            )
+            session.add(lc)
+
+    await session.commit()
     return {"detail": f"Lesson '{lesson_id}' updated", **update_data}
 
 
+# ── Per-lesson CRUD (matches frontend admin paths) ───────
+
 @router.post("/sections/{section_id}/lessons")
-async def create_lesson(section_id: str, payload: LessonCreateAdmin):
-    """Create an empty lesson under a section (content to be filled later via edit or regenerate)."""
-    section = await db.sections.find_one({"id": section_id})
-    if not section:
+async def create_lesson(
+    section_id: str,
+    payload: LessonCreatePayload,
+    session: AsyncSession = Depends(get_db),
+):
+    """Create an empty lesson under a module ('section' in legacy frontend terms)."""
+    import uuid
+
+    result = await session.execute(select(Module).where(Module.slug == section_id))
+    module = result.scalars().first()
+    if not module:
         raise HTTPException(status_code=404, detail="Section not found")
 
-    import uuid
-    lesson_id = f"{section_id}-l{uuid.uuid4().hex[:6]}"
-    now = datetime.now(timezone.utc).isoformat()
+    count_result = await session.execute(
+        select(func.count(Lesson.id)).where(Lesson.module_id == module.id)
+    )
+    sort_order = count_result.scalar_one() + 1
 
-    # Determine next sort_order within the section
-    existing_count = await db.lessons.count_documents({"section_id": section_id})
-    sort_order = existing_count + 1
+    base_slug = re.sub(r"[^a-z0-9]+", "-", payload.title.lower()).strip("-") or "lesson"
+    slug = f"{base_slug}-{uuid.uuid4().hex[:6]}"
 
-    doc = {
-        "id": lesson_id,
-        "course_id": section["course_id"],
-        "section_id": section_id,
-        "title": payload.title,
-        "level": payload.level,
-        "estimated_minutes": payload.estimated_minutes,
-        "description": payload.description or "",
-        "sort_order": sort_order,
-        "status": "draft",
-        "available_languages": ["en"],
-        "media_asset_ids": [],
-        "created_at": now,
-        "updated_at": now,
-    }
-    await db.lessons.insert_one(doc)
+    lesson = Lesson(
+        module_id=module.id,
+        slug=slug,
+        title=payload.title,
+        description=payload.description or "",
+        level=payload.level or "beginner",
+        estimated_minutes=payload.estimated_minutes or 10,
+        sort_order=sort_order,
+        status="draft",
+    )
+    session.add(lesson)
+    await session.flush()
 
-    # Create empty English content row
-    await db.lesson_contents.insert_one({
-        "lesson_id": lesson_id,
-        "language": "en",
-        "explanation": "",
-        "example": "",
-        "activity": "",
-        "created_at": now,
-        "updated_at": now,
-    })
+    # Empty English content row so editors have something to populate
+    session.add(LessonContent(
+        lesson_id=lesson.id,
+        language="en",
+        explanation="",
+        example="",
+        activity="",
+    ))
 
-    doc.pop("_id", None)
-    return doc
+    await session.commit()
+    await session.refresh(lesson)
+
+    out = lesson.to_dict()
+    out["id"] = lesson.slug
+    return out
+
+
+@router.get("/lessons/{lesson_id}")
+async def get_lesson(
+    lesson_id: str,
+    session: AsyncSession = Depends(get_db),
+):
+    """Get a single lesson with all its content, quiz, and media for the admin editor."""
+    result = await session.execute(
+        select(Lesson)
+        .options(
+            selectinload(Lesson.module),
+            selectinload(Lesson.lesson_contents),
+            selectinload(Lesson.quizzes).selectinload(Quiz.questions),
+            selectinload(Lesson.media_assets),
+        )
+        .where(Lesson.slug == lesson_id)
+    )
+    lesson = result.scalars().first()
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+
+    contents = {lc.language: lc.to_dict() for lc in lesson.lesson_contents}
+
+    assessment = None
+    if lesson.quizzes:
+        quiz = lesson.quizzes[0]
+        questions = []
+        for q in sorted(quiz.questions, key=lambda x: x.sort_order):
+            qtype = q.question_type or "mcq"
+            payload = {
+                "id": str(q.id),
+                "type": qtype,
+                "question": q.question_text,
+                "options": q.options,
+                "explanation": q.hint or "",
+                **(q.feedback or {}),
+            }
+            # Reverse the storage of correct answers (see update_lesson_quiz)
+            if qtype == "multi-select":
+                try:
+                    payload["correctAnswers"] = [
+                        int(x) for x in (q.correct_answer or "").split(",") if x != ""
+                    ]
+                except ValueError:
+                    payload["correctAnswers"] = []
+            elif qtype == "mcq":
+                try:
+                    payload["correctAnswer"] = int(q.correct_answer)
+                except (TypeError, ValueError):
+                    payload["correctAnswer"] = 0
+            elif qtype == "true-false":
+                payload["correctAnswer"] = (q.correct_answer or "").lower() == "true"
+            else:  # short-answer
+                payload["correctAnswer"] = q.correct_answer or ""
+            questions.append(payload)
+        assessment = {
+            "id": str(quiz.id),
+            "title": quiz.title,
+            "passing_score": quiz.passing_score,
+            "questions": questions,
+        }
+
+    media = [
+        {
+            "id": str(a.id),
+            "asset_type": a.asset_type,
+            "cloudinary_url": a.cloudinary_url,
+            "original_filename": a.original_filename,
+            "mime_type": a.mime_type,
+            "file_size_bytes": a.file_size_bytes,
+            "alt_text": a.alt_text,
+            "sort_order": a.sort_order,
+            "tags": a.tags,
+        }
+        for a in sorted(lesson.media_assets, key=lambda a: a.sort_order)
+    ]
+
+    out = lesson.to_dict()
+    out["id"] = lesson.slug
+    out["section_id"] = lesson.module.slug if lesson.module else None
+    out["contents"] = contents
+    out["assessment"] = assessment
+    out["media_assets"] = media
+    return out
+
+
+@router.put("/lessons/{lesson_id}")
+async def update_lesson_meta(
+    lesson_id: str,
+    update: LessonUpdate,
+    session: AsyncSession = Depends(get_db),
+):
+    """Update lesson metadata (title, level, minutes) and/or English content fields.
+
+    Same shape as `PUT /courses/{course_id}/lessons/{lesson_id}` but doesn't
+    require the course slug — used by the lesson editor.
+    """
+    result = await session.execute(select(Lesson).where(Lesson.slug == lesson_id))
+    lesson = result.scalars().first()
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+
+    update_data = {k: v for k, v in update.model_dump().items() if v is not None}
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    lesson_fields = {"title", "level", "estimated_minutes"}
+    content_fields = {"explanation", "example", "activity"}
+
+    changed_lesson = {k: v for k, v in update_data.items() if k in lesson_fields}
+    changed_content = {k: v for k, v in update_data.items() if k in content_fields}
+
+    if changed_lesson:
+        for k, v in changed_lesson.items():
+            setattr(lesson, k, v)
+        lesson.updated_at = datetime.now(timezone.utc)
+
+    if changed_content:
+        lc_result = await session.execute(
+            select(LessonContent).where(
+                LessonContent.lesson_id == lesson.id,
+                LessonContent.language == "en",
+            )
+        )
+        lc = lc_result.scalars().first()
+        if lc:
+            for k, v in changed_content.items():
+                setattr(lc, k, v)
+            lc.updated_at = datetime.now(timezone.utc)
+        else:
+            session.add(LessonContent(
+                lesson_id=lesson.id,
+                language="en",
+                **changed_content,
+            ))
+
+    await session.commit()
+    return {"detail": f"Lesson '{lesson_id}' updated", **update_data}
 
 
 @router.delete("/lessons/{lesson_id}")
-async def delete_lesson(lesson_id: str):
-    """Cascade-delete a lesson and its content + assessment."""
-    existing = await db.lessons.find_one({"id": lesson_id})
-    if not existing:
+async def delete_lesson(
+    lesson_id: str,
+    session: AsyncSession = Depends(get_db),
+):
+    """Cascade-delete a lesson and its content + quiz + media_assets."""
+    result = await session.execute(select(Lesson).where(Lesson.slug == lesson_id))
+    lesson = result.scalars().first()
+    if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
 
-    await db.lesson_contents.delete_many({"lesson_id": lesson_id})
-    await db.assessments.delete_many({"lesson_id": lesson_id})
-    await db.lessons.delete_one({"id": lesson_id})
-
+    await session.delete(lesson)
+    await session.commit()
     return {"detail": f"Lesson '{lesson_id}' deleted"}
 
 
 @router.post("/lessons/{lesson_id}/regenerate")
-async def regenerate_lesson(lesson_id: str, payload: LessonRegenerateRequest):
+async def regenerate_lesson(
+    lesson_id: str,
+    payload: LessonRegeneratePayload,
+    session: AsyncSession = Depends(get_db),
+):
     """Regenerate lesson content using AI with optional instructions and source text."""
     from services import course_generator
 
-    lesson = await db.lessons.find_one({"id": lesson_id}, {"_id": 0})
+    result = await session.execute(
+        select(Lesson)
+        .options(selectinload(Lesson.module).selectinload(Module.course))
+        .where(Lesson.slug == lesson_id)
+    )
+    lesson = result.scalars().first()
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
 
-    course = await db.courses.find_one({"id": lesson["course_id"]}, {"_id": 0})
-    tone = course.get("tone", "professional") if course else "professional"
+    course = lesson.module.course if lesson.module else None
+    tone = "professional"
+    if course and course.blueprint_json:
+        tone = (course.blueprint_json.get("_meta") or {}).get("tone", "professional")
 
     try:
         updated = await course_generator.regenerate_lesson_for_published(
+            session=session,
             lesson=lesson,
             source_text=payload.source_text or "",
             extra_instructions=payload.instructions,
             tone=tone,
         )
+        await session.commit()
         return updated
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
@@ -646,15 +945,20 @@ async def regenerate_lesson_with_docs(
     lesson_id: str,
     files: list[UploadFile] = File(default=[]),
     instructions: str = Form(""),
+    session: AsyncSession = Depends(get_db),
 ):
     """Regenerate lesson content with uploaded docs as source + optional instructions."""
     from services import course_generator, document_parser
 
-    lesson = await db.lessons.find_one({"id": lesson_id}, {"_id": 0})
+    result = await session.execute(
+        select(Lesson)
+        .options(selectinload(Lesson.module).selectinload(Module.course))
+        .where(Lesson.slug == lesson_id)
+    )
+    lesson = result.scalars().first()
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
 
-    # Parse all uploaded files and concatenate
     source_text = ""
     for f in files:
         data = await f.read()
@@ -670,16 +974,20 @@ async def regenerate_lesson_with_docs(
         except Exception as exc:  # noqa: BLE001
             logging.warning(f"Failed to parse {f.filename}: {exc}")
 
-    course = await db.courses.find_one({"id": lesson["course_id"]}, {"_id": 0})
-    tone = course.get("tone", "professional") if course else "professional"
+    course = lesson.module.course if lesson.module else None
+    tone = "professional"
+    if course and course.blueprint_json:
+        tone = (course.blueprint_json.get("_meta") or {}).get("tone", "professional")
 
     try:
         updated = await course_generator.regenerate_lesson_for_published(
+            session=session,
             lesson=lesson,
             source_text=source_text,
             extra_instructions=instructions or None,
             tone=tone,
         )
+        await session.commit()
         return updated
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
@@ -691,213 +999,340 @@ async def regenerate_lesson_with_docs(
 # ── Lesson Content (per-language) ────────────────────────
 
 @router.get("/lessons/{lesson_id}/content/{language}")
-async def get_lesson_content(lesson_id: str, language: str):
-    content = await db.lesson_contents.find_one(
-        {"lesson_id": lesson_id, "language": language}, {"_id": 0}
+async def get_lesson_content(
+    lesson_id: str,
+    language: str,
+    session: AsyncSession = Depends(get_db),
+):
+    """Get lesson content for a specific language."""
+    result = await session.execute(
+        select(LessonContent)
+        .join(Lesson, LessonContent.lesson_id == Lesson.id)
+        .where(Lesson.slug == lesson_id, LessonContent.language == language)
     )
-    if not content:
+    lc = result.scalars().first()
+    if not lc:
         raise HTTPException(status_code=404, detail=f"No {language} content for this lesson")
-    return content
+    return lc.to_dict()
 
 
 @router.put("/lessons/{lesson_id}/content/{language}")
-async def update_lesson_content(lesson_id: str, language: str, update: LessonContentUpdate):
-    lesson = await db.lessons.find_one({"id": lesson_id})
+async def update_lesson_content(
+    lesson_id: str,
+    language: str,
+    update: LessonContentUpdatePayload,
+    session: AsyncSession = Depends(get_db),
+):
+    """Update or create lesson content for a specific language."""
+    result = await session.execute(select(Lesson).where(Lesson.slug == lesson_id))
+    lesson = result.scalars().first()
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
 
-    update_data = {k: v for k, v in update.dict().items() if v is not None}
+    update_data = {k: v for k, v in update.model_dump().items() if v is not None}
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
 
-    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
-
-    result = await db.lesson_contents.update_one(
-        {"lesson_id": lesson_id, "language": language},
-        {"$set": update_data},
-        upsert=True,
+    lc_result = await session.execute(
+        select(LessonContent).where(
+            LessonContent.lesson_id == lesson.id,
+            LessonContent.language == language,
+        )
     )
+    lc = lc_result.scalars().first()
+    if lc:
+        for k, v in update_data.items():
+            setattr(lc, k, v)
+        lc.updated_at = datetime.now(timezone.utc)
+    else:
+        lc = LessonContent(
+            lesson_id=lesson.id,
+            language=language,
+            **update_data,
+        )
+        session.add(lc)
 
-    # Ensure language is in lesson's available_languages
-    await db.lessons.update_one(
-        {"id": lesson_id},
-        {"$addToSet": {"available_languages": language}},
-    )
-
+    await session.commit()
     return {"detail": f"Content updated for lesson '{lesson_id}' ({language})"}
 
 
+@router.put("/lessons/{lesson_id}/quiz")
+async def update_lesson_quiz(
+    lesson_id: str,
+    payload: QuizUpdate,
+    session: AsyncSession = Depends(get_db),
+):
+    """Replace the quiz questions for a lesson. Upserts the Quiz row.
+
+    Supports question types: mcq, multi-select, true-false, short-answer.
+    Each question may carry an optional image_asset_id / image_url, which
+    are stashed in QuizQuestion.feedback (no dedicated columns in the SQL schema yet).
+    """
+    result = await session.execute(select(Lesson).where(Lesson.slug == lesson_id))
+    lesson = result.scalars().first()
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+
+    quiz_result = await session.execute(select(Quiz).where(Quiz.lesson_id == lesson.id))
+    quiz = quiz_result.scalars().first()
+
+    title = payload.title or f"Quiz — {lesson.title}"
+    passing_score = (
+        max(0, min(100, payload.passing_score)) if payload.passing_score is not None else 70
+    )
+
+    if quiz is None:
+        quiz = Quiz(
+            lesson_id=lesson.id,
+            title=title,
+            passing_score=passing_score,
+            max_attempts=3,
+            shuffle_questions=False,
+            shuffle_options=True,
+            status="published",
+        )
+        session.add(quiz)
+        await session.flush()
+    else:
+        quiz.title = title
+        if payload.passing_score is not None:
+            quiz.passing_score = passing_score
+        old_q_result = await session.execute(
+            select(QuizQuestion).where(QuizQuestion.quiz_id == quiz.id)
+        )
+        for old_q in old_q_result.scalars().all():
+            await session.delete(old_q)
+        await session.flush()
+
+    for idx, q in enumerate(payload.questions):
+        qtype = q.type or "mcq"
+        # Map answer fields to QuizQuestion's single string column
+        if qtype == "multi-select":
+            correct = ",".join(str(i) for i in (q.correctAnswers or []))
+        elif q.correctAnswer is not None:
+            correct = str(q.correctAnswer)
+        else:
+            correct = ""
+
+        feedback: dict = {}
+        if q.image_asset_id:
+            feedback["image_asset_id"] = q.image_asset_id
+        if q.image_url:
+            feedback["image_url"] = q.image_url
+
+        session.add(QuizQuestion(
+            quiz_id=quiz.id,
+            question_text=q.question or "",
+            question_type=qtype,
+            options=q.options if q.options is not None else None,
+            correct_answer=correct,
+            hint=q.explanation or "",
+            feedback=feedback or None,
+            sort_order=idx,
+        ))
+
+    await session.commit()
+
+    refreshed_result = await session.execute(
+        select(Quiz)
+        .where(Quiz.id == quiz.id)
+        .options(selectinload(Quiz.questions))
+    )
+    refreshed = refreshed_result.scalars().first()
+    out = refreshed.to_dict()
+    out["lesson_id"] = lesson.slug
+    out["questions"] = [
+        {
+            "id": str(q.id),
+            "type": q.question_type,
+            "question": q.question_text,
+            "options": q.options,
+            "correctAnswer": q.correct_answer,
+            "explanation": q.hint,
+            **(q.feedback or {}),
+        }
+        for q in sorted(refreshed.questions, key=lambda x: x.sort_order)
+    ]
+    return out
+
+
 # ══════════════════════════════════════════════════════════
-# LMS — ASSESSMENTS
+# ASSESSMENTS
 # ══════════════════════════════════════════════════════════
 
 @router.get("/courses/{course_id}/assessments")
-async def list_assessments(course_id: str):
-    return await db.assessments.find(
-        {"course_id": course_id}, {"_id": 0}
-    ).sort("created_at", -1).to_list(500)
+async def list_assessments(
+    course_id: str,
+    session: AsyncSession = Depends(get_db),
+):
+    """List quizzes for all lessons in a course."""
+    course_result = await session.execute(select(Course).where(Course.slug == course_id))
+    course = course_result.scalars().first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
 
+    # Get all lesson IDs for this course (through modules)
+    lesson_result = await session.execute(
+        select(Lesson.id, Lesson.slug)
+        .join(Module, Lesson.module_id == Module.id)
+        .where(Module.course_id == course.id)
+    )
+    lesson_rows = lesson_result.all()
+    lesson_id_to_slug = {row.id: row.slug for row in lesson_rows}
 
-@router.get("/assessments/{assessment_id}")
-async def get_assessment(assessment_id: str):
-    assessment = await db.assessments.find_one({"id": assessment_id}, {"_id": 0})
-    if not assessment:
-        raise HTTPException(status_code=404, detail="Assessment not found")
-    return assessment
+    if not lesson_id_to_slug:
+        return []
+
+    # Get quizzes with their questions
+    quiz_result = await session.execute(
+        select(Quiz)
+        .where(Quiz.lesson_id.in_(lesson_id_to_slug.keys()))
+        .options(selectinload(Quiz.questions))
+        .order_by(Quiz.sort_order)
+    )
+    quizzes = quiz_result.scalars().all()
+
+    out = []
+    for quiz in quizzes:
+        d = quiz.to_dict()
+        d["lesson_id"] = lesson_id_to_slug.get(quiz.lesson_id, "")
+        d["questions"] = [q.to_dict() for q in quiz.questions]
+        out.append(d)
+    return out
 
 
 # ══════════════════════════════════════════════════════════
-# MEDIA — UPLOAD / DOWNLOAD / MANAGE
+# MEDIA MANAGEMENT
 # ══════════════════════════════════════════════════════════
 
 @router.post("/media/upload")
 async def upload_media(
     file: UploadFile = File(...),
-    course_id: Optional[str] = Form(None),
-    lesson_id: Optional[str] = Form(None),
+    lesson_slug: Optional[str] = Form(None),
+    section_slug: Optional[str] = Form(None),
     tags: Optional[str] = Form(None),
     current_admin: dict = Depends(get_current_admin),
+    session: AsyncSession = Depends(get_db),
 ):
-    """Upload a document or image file (max 16MB).
-
-    Accepted formats: PDF, DOCX, DOC, PNG, JPG, WEBP, SVG, XLSX, PPTX
-    """
+    """Upload a media file. Optionally attach to a lesson."""
     file_data = await file.read()
-    tag_list = [t.strip() for t in (tags or "").split(",") if t.strip()]
 
-    try:
-        asset = await media_service.upload_file(
-            file_data=file_data,
-            filename=file.filename or "untitled",
-            content_type=file.content_type or "application/octet-stream",
-            uploaded_by=current_admin.get("username", "admin"),
-            course_id=course_id,
-            lesson_id=lesson_id,
-            tags=tag_list,
+    lesson_id = None
+    # Accept either lesson_slug or section_slug (backward compat)
+    slug = lesson_slug or section_slug
+    if slug:
+        result = await session.execute(
+            select(Lesson).where(Lesson.slug == slug)
         )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        les = result.scalars().first()
+        if les:
+            lesson_id = les.id
 
+    tag_list = [t.strip() for t in tags.split(",")] if tags else None
+
+    asset = await media_service.upload_file(
+        session=session,
+        file_data=file_data,
+        filename=file.filename,
+        content_type=file.content_type,
+        uploaded_by=current_admin.get("username", "admin"),
+        lesson_id=lesson_id,
+        tags=tag_list,
+    )
     return asset
 
 
 @router.get("/media")
 async def list_media(
-    type: Optional[str] = Query(None, max_length=20),
-    course_id: Optional[str] = Query(None, max_length=100),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=200),
+    asset_type: Optional[str] = None,
+    lesson_slug: Optional[str] = None,
+    section_slug: Optional[str] = None,
+    session: AsyncSession = Depends(get_db),
 ):
-    """List uploaded media assets with optional filters."""
-    assets, total = await media_service.list_assets(
-        asset_type=type, course_id=course_id, skip=skip, limit=limit
+    """List media assets with optional filters."""
+    lesson_id = None
+    slug = lesson_slug or section_slug
+    if slug:
+        result = await session.execute(
+            select(Lesson).where(Lesson.slug == slug)
+        )
+        les = result.scalars().first()
+        if les:
+            lesson_id = les.id
+
+    assets = await media_service.list_assets(
+        session=session,
+        asset_type=asset_type,
+        lesson_id=lesson_id,
     )
-    return {"assets": assets, "total": total}
-
-
-@router.get("/media/{asset_id}")
-async def get_media_info(asset_id: str):
-    """Get media asset metadata."""
-    asset = await db.media_assets.find_one({"id": asset_id}, {"_id": 0})
-    if not asset:
-        raise HTTPException(status_code=404, detail="Media asset not found")
-    return asset
-
-
-@router.get("/media/{asset_id}/download")
-async def download_media(asset_id: str):
-    """Download the actual file."""
-    try:
-        file_data, filename, content_type = await media_service.get_file_data(asset_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Media asset not found")
-
-    return StreamingResponse(
-        io.BytesIO(file_data),
-        media_type=content_type,
-        headers={"Content-Disposition": f'inline; filename="{filename}"'},
-    )
-
-
-@router.delete("/media/{asset_id}")
-async def delete_media(asset_id: str):
-    """Delete a media asset and its file."""
-    try:
-        await media_service.delete_file(asset_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Media asset not found")
-    return {"detail": f"Media asset '{asset_id}' deleted"}
+    return assets
 
 
 @router.post("/media/{asset_id}/attach")
-async def attach_media_to_lesson(asset_id: str, body: AssetAttach):
+async def attach_media(
+    asset_id: int,
+    body: AssetAttach,
+    session: AsyncSession = Depends(get_db),
+):
     """Attach a media asset to a lesson."""
-    try:
-        await media_service.attach_to_lesson(asset_id, body.lesson_id)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    return {"detail": f"Asset '{asset_id}' attached to lesson '{body.lesson_id}'"}
+    # Resolve lesson_id (slug) to lesson int id
+    result = await session.execute(
+        select(Lesson).where(Lesson.slug == body.lesson_id)
+    )
+    les = result.scalars().first()
+    if not les:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+
+    success = await media_service.attach_to_lesson(
+        session=session,
+        asset_id=asset_id,
+        lesson_id=les.id,
+    )
+    if not success:
+        raise HTTPException(status_code=404, detail="Media asset not found")
+    return {"detail": f"Asset {asset_id} attached to lesson '{body.lesson_id}'"}
 
 
 # ══════════════════════════════════════════════════════════
 # TRANSLATION
 # ══════════════════════════════════════════════════════════
 
-@router.post("/lessons/{lesson_id}/translate")
-async def translate_lesson(
-    lesson_id: str,
-    body: TranslateRequest,
-    current_admin: dict = Depends(get_current_admin),
-):
-    """Auto-translate a single lesson's content to the target language."""
-    try:
-        result = await translation_service.translate_lesson_content(
-            lesson_id=lesson_id,
-            target_lang=body.target_language,
-            translated_by=current_admin.get("username", "admin"),
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    return {"detail": f"Lesson '{lesson_id}' translated to {body.target_language}", "content": result}
-
-
 @router.post("/courses/{course_id}/translate")
 async def translate_course(
     course_id: str,
     body: TranslateRequest,
-    current_admin: dict = Depends(get_current_admin),
+    session: AsyncSession = Depends(get_db),
 ):
-    """Auto-translate all lessons in a course to the target language."""
-    course = await db.courses.find_one({"id": course_id})
+    """Translate all lessons in a course to the target language."""
+    result = await session.execute(select(Course).where(Course.slug == course_id))
+    course = result.scalars().first()
     if not course:
         raise HTTPException(status_code=404, detail="Course not found")
-    result = await translation_service.translate_course(
-        course_id=course_id,
+
+    translated = await translation_service.translate_course(
+        session=session,
+        module_id=course.id,
         target_lang=body.target_language,
-        translated_by=current_admin.get("username", "admin"),
     )
-    return result
+    return translated
 
 
 @router.get("/courses/{course_id}/translation-status")
-async def course_translation_status(course_id: str):
-    """Get translation coverage for a course across all supported languages."""
-    course = await db.courses.find_one({"id": course_id})
+async def translation_status(
+    course_id: str,
+    session: AsyncSession = Depends(get_db),
+):
+    """Get translation coverage for a course."""
+    result = await session.execute(select(Course).where(Course.slug == course_id))
+    course = result.scalars().first()
     if not course:
         raise HTTPException(status_code=404, detail="Course not found")
-    return await translation_service.get_translation_status(course_id)
 
-
-@router.put("/lessons/{lesson_id}/content/{language}/publish")
-async def publish_translation(lesson_id: str, language: str):
-    """Mark a translated lesson content as published (approve after review)."""
-    result = await db.lesson_contents.update_one(
-        {"lesson_id": lesson_id, "language": language},
-        {"$set": {"status": "published", "updated_at": datetime.now(timezone.utc).isoformat()}},
+    status = await translation_service.get_translation_status(
+        session=session,
+        module_id=course.id,
     )
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail=f"No {language} content for lesson '{lesson_id}'")
-    return {"detail": f"Translation for '{lesson_id}' ({language}) published"}
+    return status
 
 
 # ══════════════════════════════════════════════════════════
@@ -905,22 +1340,28 @@ async def publish_translation(lesson_id: str, language: str):
 # ══════════════════════════════════════════════════════════
 
 @router.get("/stats")
-async def admin_stats():
-    """Platform overview stats for the admin dashboard."""
-    users_count = await db.users.count_documents({})
-    tools_count = await db.tools.count_documents({})
-    modules_count = await db.modules.count_documents({})
-    enrollments_count = await db.enrollments.count_documents({})
-    courses_count = await db.courses.count_documents({})
-    lessons_count = await db.lessons.count_documents({})
-    media_count = await db.media_assets.count_documents({})
+async def admin_stats(session: AsyncSession = Depends(get_db)):
+    """Dashboard stats: counts of users, courses, modules, lessons, media, etc."""
+    user_count = (await session.execute(select(func.count(User.id)))).scalar_one()
+    course_count = (await session.execute(select(func.count(Course.id)))).scalar_one()
+    module_count = (await session.execute(select(func.count(Module.id)))).scalar_one()
+    lesson_count = (await session.execute(select(func.count(Lesson.id)))).scalar_one()
+    media_count = (await session.execute(select(func.count(MediaAsset.id)))).scalar_one()
+    quiz_count = (await session.execute(select(func.count(Quiz.id)))).scalar_one()
+    enrollment_count = (await session.execute(select(func.count(Enrollment.id)))).scalar_one()
+    category_count = (await session.execute(select(func.count(Category.id)))).scalar_one()
+    draft_count = (await session.execute(
+        select(func.count(Course.id)).where(Course.status == "draft")
+    )).scalar_one()
 
     return {
-        "users": users_count,
-        "tools": tools_count,
-        "modules": modules_count,
-        "enrollments": enrollments_count,
-        "courses": courses_count,
-        "lessons": lessons_count,
+        "users": user_count,
+        "courses": course_count,
+        "modules": module_count,
+        "lessons": lesson_count,
         "media_assets": media_count,
+        "quizzes": quiz_count,
+        "enrollments": enrollment_count,
+        "categories": category_count,
+        "draft_courses": draft_count,
     }

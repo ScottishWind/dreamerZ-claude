@@ -3,10 +3,13 @@
 from datetime import datetime, timezone
 from typing import List
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from database import db
-from models.content import StatusCheck, StatusCheckCreate
+from database import get_db
+from models.content import StatusCheck as StatusCheckSchema, StatusCheckCreate
+from models.sql_models import StatusCheck as StatusCheckModel
 
 router = APIRouter(tags=["status"])
 
@@ -16,25 +19,35 @@ async def root():
     return {"message": "DreamerZ Beta API", "version": "1.0.0"}
 
 
-@router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
-    doc = status_obj.model_dump()
-    doc["timestamp"] = doc["timestamp"].isoformat()
-    await db.status_checks.insert_one(doc)
+@router.post("/status", response_model=StatusCheckSchema)
+async def create_status_check(input: StatusCheckCreate, session: AsyncSession = Depends(get_db)):
+    status_obj = StatusCheckSchema(client_name=input.client_name)
+
+    db_record = StatusCheckModel(
+        client_name=input.client_name,
+        timestamp=status_obj.timestamp,
+    )
+    session.add(db_record)
+    await session.commit()
+
     return status_obj
 
 
-@router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    status_checks = await db.status_checks.find(
-        {}, {"_id": 0}
-    ).to_list(1000)
-    for check in status_checks:
-        if isinstance(check["timestamp"], str):
-            check["timestamp"] = datetime.fromisoformat(check["timestamp"])
-    return status_checks
+@router.get("/status", response_model=List[StatusCheckSchema])
+async def get_status_checks(session: AsyncSession = Depends(get_db)):
+    result = await session.execute(
+        select(StatusCheckModel).order_by(StatusCheckModel.id)
+    )
+    rows = result.scalars().all()
+
+    return [
+        StatusCheckSchema(
+            id=str(row.id),
+            client_name=row.client_name or "",
+            timestamp=row.timestamp,
+        )
+        for row in rows
+    ]
 
 
 @router.get("/health")

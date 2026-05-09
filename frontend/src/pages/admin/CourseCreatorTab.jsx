@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { JourneyPlayer } from '../../components/JourneyPlayer';
 import { draftToLearnerTool } from './previewAdapter';
+import { formatErrorDetail } from '../../lib/utils';
 
 // Max lessons generated concurrently to avoid API rate limits
 const LESSON_CONCURRENCY = 4;
@@ -30,7 +31,7 @@ const adminJson = async (path, token, options = {}) => {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || `Request failed (${res.status})`);
+    throw new Error(formatErrorDetail(err.detail) || `Request failed (${res.status})`);
   }
   return res.json();
 };
@@ -43,7 +44,7 @@ const adminUpload = async (path, token, formData) => {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || `Upload failed (${res.status})`);
+    throw new Error(formatErrorDetail(err.detail) || `Upload failed (${res.status})`);
   }
   return res.json();
 };
@@ -116,6 +117,7 @@ export const CourseCreatorTab = ({ token, onPublishSuccess }) => {
   const [tone, setTone] = useState('professional');
   const [moduleCount, setModuleCount] = useState(6);
   const [lessonsPerModule, setLessonsPerModule] = useState(3);
+  const [difficulty, setDifficulty] = useState('beginner');
   const [courseTitleHint, setCourseTitleHint] = useState('');
   const [instructions, setInstructions] = useState('');
 
@@ -124,6 +126,9 @@ export const CourseCreatorTab = ({ token, onPublishSuccess }) => {
   const [categoryId, setCategoryId] = useState('');
   const [newCategoryName, setNewCategoryName] = useState('');
   const [isNewCategory, setIsNewCategory] = useState(false);
+
+  // Field-level validation errors for the config step
+  const [fieldErrors, setFieldErrors] = useState({});
 
   // Draft
   const [draft, setDraft] = useState(null);
@@ -177,6 +182,7 @@ export const CourseCreatorTab = ({ token, onPublishSuccess }) => {
 
     // Add to files list
     setFiles(prev => [...prev, ...arr]);
+    setFieldErrors((fe) => ({ ...fe, files: undefined }));
 
     // Parse each file in parallel
     for (const f of arr) {
@@ -202,10 +208,22 @@ export const CourseCreatorTab = ({ token, onPublishSuccess }) => {
 
   // ── Blueprint ──
   const handleGenerateBlueprint = async () => {
-    if (parsedFiles.length === 0) {
-      setError('Please upload at least one document.');
+    // Up-front field validation – collect all errors so every missing field is highlighted at once
+    const errors = {};
+    if (parsedFiles.length === 0) errors.files = 'Please upload at least one document.';
+    if (!courseTitleHint.trim()) errors.courseTitle = 'Course title is required.';
+    if (isNewCategory) {
+      if (!newCategoryName.trim()) errors.category = 'Enter a name for the new category.';
+    } else if (!categoryId) {
+      errors.category = 'Please select or create a category.';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      setError('Please fill in the highlighted fields.');
       return;
     }
+    setFieldErrors({});
 
     // Resolve category (create new if needed)
     let finalCategoryId = categoryId;
@@ -221,14 +239,10 @@ export const CourseCreatorTab = ({ token, onPublishSuccess }) => {
         setIsNewCategory(false);
         setNewCategoryName('');
       } catch (e) {
+        setFieldErrors({ category: `Failed to create category: ${e.message}` });
         setError(`Failed to create category: ${e.message}`);
         return;
       }
-    }
-
-    if (!finalCategoryId && !isNewCategory) {
-      setError('Please select or create a category.');
-      return;
     }
 
     setBusy(true);
@@ -251,13 +265,19 @@ export const CourseCreatorTab = ({ token, onPublishSuccess }) => {
           tone,
           module_count: moduleCount,
           lessons_per_module: lessonsPerModule,
+          difficulty,
           course_title_hint: courseTitleHint || undefined,
           instructions: instructions || undefined,
         }),
       });
       setDraft(result);
-      // Auto-expand all modules so the lesson tree is visible immediately
+      // Auto-expand all modules and lessons so users can manually edit content even if blank
       setExpandedModules(new Set((result.blueprint?.modules || []).map((m) => m.id)));
+      const allLessonIds = [];
+      (result.blueprint?.modules || []).forEach(m => {
+        (m.lessons || []).forEach(l => allLessonIds.push(l.id));
+      });
+      setExpandedLessons(new Set(allLessonIds));
       setSuccess('Blueprint generated. Review the outline and generate lessons.');
     } catch (e) {
       setError(e.message);
@@ -369,20 +389,22 @@ export const CourseCreatorTab = ({ token, onPublishSuccess }) => {
       if (m.id !== moduleId) return m;
       return {
         ...m,
-        lessons: m.lessons.map((l) =>
-          l.id === lessonId
-            ? {
-                ...l,
-                title: editBuffer.title,
-                content: {
-                  ...(l.content || {}),
-                  explanation: editBuffer.explanation,
-                  example: editBuffer.example,
-                  activity: editBuffer.activity,
-                },
-              }
-            : l,
-        ),
+        lessons: m.lessons.map((l) => {
+          if (l.id !== lessonId) return l;
+          const hasContent = (editBuffer.explanation || '').trim().length > 0;
+          return {
+            ...l,
+            title: editBuffer.title,
+            content: {
+              ...(l.content || {}),
+              explanation: editBuffer.explanation,
+              example: editBuffer.example,
+              activity: editBuffer.activity,
+            },
+            // Promote pending → generated when admin manually adds explanation
+            status: hasContent ? 'generated' : l.status,
+          };
+        }),
       };
     });
 
@@ -539,54 +561,142 @@ export const CourseCreatorTab = ({ token, onPublishSuccess }) => {
             Upload one or more documents and configure the course structure. Claude will generate a full course blueprint with modules, lessons and quizzes.
           </p>
 
-          {/* Category Selection */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-700">Category</label>
-            {!isNewCategory ? (
-              <select
-                value={categoryId}
+          {/* Course Configuration */}
+          <div className="grid sm:grid-cols-2 gap-4">
+            {/* Row 1: Course Title | Category */}
+            <label className="block">
+              <span className="text-sm font-medium text-slate-700">Course Title *</span>
+              <input
+                required
+                value={courseTitleHint}
                 onChange={(e) => {
-                  if (e.target.value === '__new__') {
-                    setIsNewCategory(true);
-                  } else {
-                    setCategoryId(e.target.value);
-                  }
+                  setCourseTitleHint(e.target.value);
+                  if (e.target.value.trim()) setFieldErrors((fe) => ({ ...fe, courseTitle: undefined }));
                 }}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/40"
-              >
-                {categories.map((cat) => (
-                  <option key={cat.id} value={cat.id}>{cat.name}</option>
-                ))}
-                <option value="__new__">➕ Create new category</option>
-              </select>
-            ) : (
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newCategoryName}
-                  onChange={(e) => setNewCategoryName(e.target.value)}
-                  placeholder="Enter new category name"
-                  className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/40"
-                />
-                <button
-                  onClick={() => {
-                    setIsNewCategory(false);
-                    setNewCategoryName('');
+                placeholder="Enter course title"
+                className={`mt-1 w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 ${fieldErrors.courseTitle ? 'border-red-400 focus:ring-red-300' : 'border-slate-200 focus:ring-primary/40'}`}
+              />
+              {fieldErrors.courseTitle && (
+                <p className="mt-1 text-xs text-red-600">{fieldErrors.courseTitle}</p>
+              )}
+            </label>
+            <div className="block">
+              <span className="text-sm font-medium text-slate-700">Category *</span>
+              {!isNewCategory ? (
+                <select
+                  value={categoryId}
+                  onChange={(e) => {
+                    setFieldErrors((fe) => ({ ...fe, category: undefined }));
+                    if (e.target.value === '__new__') {
+                      setIsNewCategory(true);
+                    } else {
+                      setCategoryId(e.target.value);
+                    }
                   }}
-                  className="px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200"
+                  className={`mt-1 w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 ${fieldErrors.category ? 'border-red-400 focus:ring-red-300' : 'border-slate-200 focus:ring-primary/40'}`}
                 >
-                  Cancel
-                </button>
-              </div>
-            )}
+                  {categories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>{cat.name}</option>
+                  ))}
+                  <option value="__new__">➕ Create new category</option>
+                </select>
+              ) : (
+                <div className="mt-1 flex gap-2">
+                  <input
+                    type="text"
+                    value={newCategoryName}
+                    onChange={(e) => {
+                      setNewCategoryName(e.target.value);
+                      if (e.target.value.trim()) setFieldErrors((fe) => ({ ...fe, category: undefined }));
+                    }}
+                    placeholder="Enter new category name"
+                    className={`flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 ${fieldErrors.category ? 'border-red-400 focus:ring-red-300' : 'border-slate-200 focus:ring-primary/40'}`}
+                  />
+                  <button
+                    onClick={() => {
+                      setIsNewCategory(false);
+                      setNewCategoryName('');
+                    }}
+                    className="px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+              {fieldErrors.category && (
+                <p className="mt-1 text-xs text-red-600">{fieldErrors.category}</p>
+              )}
+            </div>
+
+            {/* Row 2: Difficulty Level | Language Tone */}
+            <label className="block">
+              <span className="text-sm font-medium text-slate-700">Difficulty Level</span>
+              <select
+                value={difficulty}
+                onChange={(e) => setDifficulty(e.target.value)}
+                className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/40"
+              >
+                <option value="beginner">Beginner</option>
+                <option value="intermediate">Intermediate</option>
+                <option value="advanced">Advanced</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-slate-700">Language Tone</span>
+              <select
+                value={tone}
+                onChange={(e) => setTone(e.target.value)}
+                className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/40"
+              >
+                {TONES.map((t) => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
+            </label>
+
+            {/* Row 3: Course Modules | Lessons per Module */}
+            <label className="block">
+              <span className="text-sm font-medium text-slate-700">Course Modules</span>
+              <input
+                type="number"
+                min={1}
+                max={12}
+                value={moduleCount}
+                onChange={(e) => setModuleCount(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-slate-700">Lessons per Module</span>
+              <input
+                type="number"
+                min={1}
+                max={8}
+                value={lessonsPerModule}
+                onChange={(e) => setLessonsPerModule(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+              />
+            </label>
           </div>
 
-          {/* Document Upload */}
+          {/* Special Instructions */}
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700">Special Instructions</span>
+            <textarea
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+              rows={3}
+              placeholder="e.g. focus on practical examples, target age 14-18, include Indian context"
+              className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+            />
+          </label>
+
+          {/* Source Documents */}
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-700">Source Documents</label>
+            <label className="text-sm font-medium text-slate-700">Source Documents *</label>
             <div
               onClick={() => !busy && fileInputRef.current?.click()}
-              className={`border-2 border-dashed border-slate-200 rounded-xl p-6 text-center cursor-pointer hover:border-primary/60 hover:bg-slate-50 transition-colors ${busy ? 'opacity-60 pointer-events-none' : ''}`}
+              className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors ${busy ? 'opacity-60 pointer-events-none' : ''} ${fieldErrors.files ? 'border-red-400 bg-red-50/40 hover:border-red-500' : 'border-slate-200 hover:border-primary/60 hover:bg-slate-50'}`}
             >
               <input
                 ref={fileInputRef}
@@ -632,71 +742,22 @@ export const CourseCreatorTab = ({ token, onPublishSuccess }) => {
                 ))}
               </div>
             )}
+            {fieldErrors.files && (
+              <p className="text-xs text-red-600">{fieldErrors.files}</p>
+            )}
           </div>
 
-          {/* Course Configuration */}
-          <div className="grid sm:grid-cols-2 gap-4">
-            <label className="block">
-              <span className="text-sm font-medium text-slate-700">Tone</span>
-              <select
-                value={tone}
-                onChange={(e) => setTone(e.target.value)}
-                className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/40"
-              >
-                {TONES.map((t) => (
-                  <option key={t.value} value={t.value}>{t.label}</option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className="text-sm font-medium text-slate-700">Modules</span>
-              <input
-                type="number"
-                min={2}
-                max={12}
-                value={moduleCount}
-                onChange={(e) => setModuleCount(parseInt(e.target.value, 10) || 6)}
-                className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-              />
-            </label>
-            <label className="block">
-              <span className="text-sm font-medium text-slate-700">Lessons per module</span>
-              <input
-                type="number"
-                min={2}
-                max={8}
-                value={lessonsPerModule}
-                onChange={(e) => setLessonsPerModule(parseInt(e.target.value, 10) || 3)}
-                className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-              />
-            </label>
-            <label className="block">
-              <span className="text-sm font-medium text-slate-700">Course title (optional)</span>
-              <input
-                value={courseTitleHint}
-                onChange={(e) => setCourseTitleHint(e.target.value)}
-                placeholder="Leave blank to let AI decide"
-                className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-              />
-            </label>
-          </div>
-
-          <label className="block">
-            <span className="text-sm font-medium text-slate-700">Special instructions</span>
-            <textarea
-              value={instructions}
-              onChange={(e) => setInstructions(e.target.value)}
-              rows={3}
-              placeholder="e.g. focus on practical examples, target age 14-18, include Indian context"
-              className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-            />
-          </label>
-
-          <div className="flex items-center justify-end pt-2">
+          <div className="flex items-center justify-end gap-3 pt-2">
+            {parsingFiles.size > 0 && (
+              <span className="text-xs text-slate-500 inline-flex items-center gap-1">
+                <RefreshCw className="w-3 h-3 animate-spin" /> Parsing documents…
+              </span>
+            )}
             <button
               onClick={handleGenerateBlueprint}
-              disabled={busy || parsedFiles.length === 0}
+              disabled={busy || parsingFiles.size > 0}
               className="bg-primary text-white px-5 py-2.5 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-primary/90 disabled:opacity-50"
+              title={parsingFiles.size > 0 ? 'Wait for documents to finish parsing' : 'Generate course blueprint'}
             >
               {busy ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
               Generate Blueprint
@@ -866,7 +927,7 @@ export const CourseCreatorTab = ({ token, onPublishSuccess }) => {
                                   const isEditing = editingLessonId === lesson.id;
                                   const isGenerating = generatingLessonIds.has(lesson.id);
                                   const lessonOpen = expandedLessons.has(lesson.id) || isEditing;
-                                  const canExpand = lesson.status === 'generated' || isEditing;
+                                  const canExpand = true;
                                   return (
                                     <div key={lesson.id} className="relative pl-6">
                                       {/* Horizontal branch connector */}
@@ -915,14 +976,23 @@ export const CourseCreatorTab = ({ token, onPublishSuccess }) => {
                                             </div>
                                           </div>
                                           <div className="flex items-center gap-1 flex-shrink-0">
-                                            {lesson.status !== 'generated' && !isGenerating && (
-                                              <button
-                                                onClick={() => generateLesson(module.id, lesson.id)}
-                                                className="text-xs px-2.5 py-1 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 flex items-center gap-1"
-                                              >
-                                                <Sparkles className="w-3 h-3" />
-                                                Generate
-                                              </button>
+                                            {lesson.status !== 'generated' && !isGenerating && !isEditing && (
+                                              <>
+                                                <button
+                                                  onClick={() => generateLesson(module.id, lesson.id)}
+                                                  className="text-xs px-2.5 py-1 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 flex items-center gap-1"
+                                                >
+                                                  <Sparkles className="w-3 h-3" />
+                                                  Generate
+                                                </button>
+                                                <button
+                                                  onClick={() => startEditLesson(lesson)}
+                                                  className="p-1 text-slate-400 hover:text-primary"
+                                                  title="Edit manually"
+                                                >
+                                                  <Edit3 className="w-4 h-4" />
+                                                </button>
+                                              </>
                                             )}
                                             {lesson.status === 'generated' && !isGenerating && !isEditing && (
                                               <>
@@ -973,9 +1043,13 @@ export const CourseCreatorTab = ({ token, onPublishSuccess }) => {
                                               rows={8}
                                               className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white"
                                             />
-                                          ) : (
+                                          ) : lesson.content?.explanation ? (
                                             <div className="text-xs text-slate-700 whitespace-pre-wrap max-h-40 overflow-y-auto">
-                                              {lesson.content?.explanation}
+                                              {lesson.content.explanation}
+                                            </div>
+                                          ) : (
+                                            <div className="text-xs text-slate-400 italic">
+                                              No content yet — click <Edit3 className="w-3 h-3 inline" /> to add manually or <Sparkles className="w-3 h-3 inline" /> to generate with AI.
                                             </div>
                                           )}
                                         </div>

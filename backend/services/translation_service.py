@@ -1,11 +1,13 @@
 """Translation service — auto-translate lesson content using Claude API."""
 
-import json
 import logging
 from datetime import datetime, timezone
 
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from config import ANTHROPIC_API_KEY, CLAUDE_MODEL, SUPPORTED_LANGUAGES
-from database import db
+from models.sql_models import Lesson, LessonContent, Course, Module
 
 _LANG_NAMES = {lang["code"]: lang["name"] for lang in SUPPORTED_LANGUAGES}
 
@@ -54,40 +56,44 @@ async def translate_text(text: str, target_lang: str) -> str:
         return text
 
 
-async def translate_lesson_content(
-    lesson_id: str,
+async def translate_lesson(
+    session: AsyncSession,
+    lesson_id: int,
     target_lang: str,
     translated_by: str = "auto",
 ) -> dict:
     """Auto-translate a lesson's English content to the target language.
 
-    Creates or updates a lesson_contents entry with status='draft'.
-    Returns the translated content document.
+    Creates or updates a LessonContent entry for the target language with status='draft'.
+    Returns the translated content as a dict.
     """
     # Fetch the English source content
-    en_content = await db.lesson_contents.find_one(
-        {"lesson_id": lesson_id, "language": "en"}, {"_id": 0}
+    result = await session.execute(
+        select(LessonContent).where(
+            LessonContent.lesson_id == lesson_id,
+            LessonContent.language == "en",
+        )
     )
+    en_content = result.scalars().first()
     if not en_content:
-        raise ValueError(f"No English content found for lesson '{lesson_id}'")
+        raise ValueError(f"No English content found for lesson {lesson_id}")
 
     # Fields to translate
     text_fields = ["explanation", "example", "activity", "bengali_tip", "micro_grammar", "speaking_task"]
     translated = {}
 
     for field in text_fields:
-        original = en_content.get(field) or ""
+        original = getattr(en_content, field, None) or ""
         if original.strip():
             translated[field] = await translate_text(original, target_lang)
         else:
             translated[field] = ""
 
-    # Translate vocab items
-    source_vocab = en_content.get("vocab", [])
+    # Translate vocab items (stored as JSON list)
+    source_vocab = en_content.vocab or []
     translated_vocab = []
     for item in source_vocab:
         t_item = dict(item)
-        # Translate meaning and example sentence
         if item.get("meaning"):
             t_item["meaning"] = await translate_text(item["meaning"], target_lang)
         if item.get("example_sentence"):
@@ -97,7 +103,7 @@ async def translate_lesson_content(
         translated_vocab.append(t_item)
 
     # Translate dialogue lines (only the 'line' field, keep 'speaker')
-    source_dialogue = en_content.get("dialogue", [])
+    source_dialogue = en_content.dialogue or []
     translated_dialogue = []
     for line in source_dialogue:
         t_line = dict(line)
@@ -105,74 +111,90 @@ async def translate_lesson_content(
             t_line["line"] = await translate_text(line["line"], target_lang)
         translated_dialogue.append(t_line)
 
-    now = datetime.now(timezone.utc).isoformat()
-    version = en_content.get("version", 1)
-
-    content_doc = {
-        "lesson_id": lesson_id,
-        "language": target_lang,
-        "version": version,
-        **translated,
-        "explanation_format": en_content.get("explanation_format", "markdown"),
-        "vocab": translated_vocab,
-        "dialogue": translated_dialogue,
-        "media_assets": en_content.get("media_assets", []),
-        "downloadable_assets": en_content.get("downloadable_assets", []),
-        "status": "draft",
-        "translated_by": translated_by,
-        "source_language": "en",
-        "created_at": now,
-        "updated_at": now,
-    }
-
-    # Upsert into lesson_contents
-    await db.lesson_contents.update_one(
-        {"lesson_id": lesson_id, "language": target_lang},
-        {"$set": content_doc},
-        upsert=True,
+    # Check if a translated LessonContent already exists for this language
+    result = await session.execute(
+        select(LessonContent).where(
+            LessonContent.lesson_id == lesson_id,
+            LessonContent.language == target_lang,
+        )
     )
+    existing = result.scalars().first()
 
-    # Ensure language is in lesson's available_languages
-    await db.lessons.update_one(
-        {"id": lesson_id},
-        {"$addToSet": {"available_languages": target_lang}},
-    )
+    if existing:
+        # Update existing translation
+        for field in text_fields:
+            setattr(existing, field, translated[field])
+        existing.explanation_format = en_content.explanation_format or "markdown"
+        existing.vocab = translated_vocab
+        existing.dialogue = translated_dialogue
+        existing.status = "draft"
+        existing.translated_by = translated_by
+        tc = existing
+    else:
+        # Create new translated LessonContent
+        tc = LessonContent(
+            lesson_id=lesson_id,
+            language=target_lang,
+            explanation_format=en_content.explanation_format or "markdown",
+            vocab=translated_vocab,
+            dialogue=translated_dialogue,
+            status="draft",
+            translated_by=translated_by,
+            **translated,
+        )
+        session.add(tc)
 
-    return content_doc
+    await session.flush()
+    return tc.to_dict()
 
 
 async def translate_course(
-    course_id: str,
+    session: AsyncSession,
+    course_id: int,
     target_lang: str,
     translated_by: str = "auto",
 ) -> dict:
     """Translate all lessons in a course to the target language.
 
+    Navigates Course -> Modules -> Lessons and translates each LessonContent.
     Returns a summary with counts.
     """
-    lessons = await db.lessons.find(
-        {"course_id": course_id}, {"id": 1, "_id": 0}
-    ).to_list(1000)
+    # Get all modules in this course
+    result = await session.execute(
+        select(Module).where(Module.course_id == course_id)
+    )
+    modules = result.scalars().all()
 
     translated_count = 0
     skipped_count = 0
     error_count = 0
 
-    for lesson in lessons:
-        try:
-            # Check if English content exists
-            en = await db.lesson_contents.find_one(
-                {"lesson_id": lesson["id"], "language": "en"}
-            )
-            if not en:
-                skipped_count += 1
-                continue
+    for module in modules:
+        # Get all lessons in this module
+        result = await session.execute(
+            select(Lesson).where(Lesson.module_id == module.id)
+        )
+        lessons = result.scalars().all()
 
-            await translate_lesson_content(lesson["id"], target_lang, translated_by)
-            translated_count += 1
-        except Exception as e:
-            logging.error("Failed to translate lesson %s: %s", lesson["id"], e)
-            error_count += 1
+        for lesson in lessons:
+            try:
+                # Check if English content exists
+                result = await session.execute(
+                    select(LessonContent).where(
+                        LessonContent.lesson_id == lesson.id,
+                        LessonContent.language == "en",
+                    )
+                )
+                en = result.scalars().first()
+                if not en:
+                    skipped_count += 1
+                    continue
+
+                await translate_lesson(session, lesson.id, target_lang, translated_by)
+                translated_count += 1
+            except Exception as e:
+                logging.error("Failed to translate lesson %s: %s", lesson.id, e)
+                error_count += 1
 
     return {
         "course_id": course_id,
@@ -183,13 +205,22 @@ async def translate_course(
     }
 
 
-async def get_translation_status(course_id: str) -> dict:
-    """Get translation coverage for a course across all supported languages."""
-    lessons = await db.lessons.find(
-        {"course_id": course_id}, {"id": 1, "_id": 0}
-    ).to_list(1000)
-    lesson_ids = [l["id"] for l in lessons]
+async def get_translation_status(session: AsyncSession, course_id: int) -> dict:
+    """Get translation coverage for a course across all supported languages.
+
+    Counts LessonContent records per language for all lessons in the course.
+    """
+    # Get all lesson IDs for this course by joining Module -> Lesson
+    result = await session.execute(
+        select(Lesson.id)
+        .join(Module, Lesson.module_id == Module.id)
+        .where(Module.course_id == course_id)
+    )
+    lesson_ids = [row[0] for row in result.all()]
     total = len(lesson_ids)
+
+    if not lesson_ids:
+        return {}
 
     status = {}
     for lang_info in SUPPORTED_LANGUAGES:
@@ -198,16 +229,23 @@ async def get_translation_status(course_id: str) -> dict:
             status[lang] = {"total": total, "translated": total, "published": total, "draft": 0}
             continue
 
-        contents = await db.lesson_contents.find(
-            {"lesson_id": {"$in": lesson_ids}, "language": lang},
-            {"status": 1, "_id": 0},
-        ).to_list(1000)
+        # Count LessonContent records for this language across all lessons
+        result = await session.execute(
+            select(LessonContent.status, func.count(LessonContent.id)).where(
+                LessonContent.lesson_id.in_(lesson_ids),
+                LessonContent.language == lang,
+            ).group_by(LessonContent.status)
+        )
+        rows = result.all()
+        status_counts = {row[0]: row[1] for row in rows}
 
-        published = sum(1 for c in contents if c.get("status") == "published")
-        draft = sum(1 for c in contents if c.get("status") == "draft")
+        published = status_counts.get("published", 0)
+        draft = status_counts.get("draft", 0)
+        translated_total = sum(status_counts.values())
+
         status[lang] = {
             "total": total,
-            "translated": len(contents),
+            "translated": translated_total,
             "published": published,
             "draft": draft,
         }

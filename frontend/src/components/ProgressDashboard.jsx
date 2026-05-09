@@ -8,8 +8,6 @@ import { Link } from 'react-router-dom';
 import { Button } from './ui/button';
 import { Progress } from './ui/progress';
 import { StreakBadge } from './StreakBadge';
-import { toolsData, getTotalModules, getTotalXP } from '../data/toolsData';
-
 export const ProgressDashboard = ({
   progress,
   getToolCompletion,
@@ -21,14 +19,11 @@ export const ProgressDashboard = ({
 }) => {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
 
-  // Get API-only tools (not in static toolsData)
-  const staticToolIds = new Set(toolsData.map(t => t.id));
-  const extraApiTools = apiTools.filter(t => !staticToolIds.has(t.id));
-  const extraModuleCount = extraApiTools.reduce((sum, t) => sum + (t.modules?.length || 0), 0);
-
-  const overallCompletion = getOverallCompletion(extraModuleCount);
-  const totalModulesCount = getTotalModules() + extraModuleCount;
-  const maxXP = getTotalXP() + extraApiTools.reduce((sum, t) => sum + (t.xpReward || t.totalXP || 0), 0);
+  // Use API tools directly (no static data merge needed)
+  const allCourses = apiTools;
+  const totalModulesCount = allCourses.reduce((sum, t) => sum + (t.modules?.length || 0), 0);
+  const maxXP = allCourses.reduce((sum, t) => sum + (t.xpReward || t.totalXP || 0), 0);
+  const overallCompletion = getOverallCompletion(totalModulesCount);
   
   // Calculate completed modules count
   const completedModulesCount = Object.values(progress.completedModules || {}).reduce(
@@ -106,11 +101,10 @@ export const ProgressDashboard = ({
             <CheckCircle2 className="w-5 h-5 opacity-50" />
           </div>
           <div className="text-3xl font-bold">
-            {toolsData.filter(t => getToolCompletion(t.id) === 100).length +
-             extraApiTools.filter(t => getToolCompletion(t.id, t.modules?.length) === 100).length}
+            {allCourses.filter(t => getToolCompletion(t.id, t.modules?.length) === 100).length}
           </div>
-          <p className="text-white/80 text-sm">Tools Mastered</p>
-          <p className="text-white/60 text-xs mt-1">of {toolsData.length + extraApiTools.length} total</p>
+          <p className="text-white/80 text-sm">Courses Mastered</p>
+          <p className="text-white/60 text-xs mt-1">of {allCourses.length} total</p>
         </motion.div>
       </div>
 
@@ -119,27 +113,14 @@ export const ProgressDashboard = ({
         <div className="p-6 border-b border-slate-100">
           <h3 className="font-bold text-slate-900 text-lg flex items-center gap-2">
             <BookOpen className="w-5 h-5 text-primary" />
-            Progress by Tool
+            Progress by Course
           </h3>
         </div>
-        
+
         <div className="divide-y divide-slate-100">
-          {/* Combine static tools + API-only tools */}
-          {[
-            ...toolsData.map(t => ({ ...t, _source: 'static' })),
-            ...extraApiTools.map(t => ({
-              id: t.id,
-              name: t.name,
-              icon: t.icon || '🗣️',
-              color: t.color || '#f43f5e',
-              modules: t.modules || [],
-              _source: 'api'
-            }))
-          ].map((tool, index) => {
+          {allCourses.map((tool, index) => {
             const moduleCount = tool.modules?.length || 0;
-            const completion = tool._source === 'api'
-              ? getToolCompletion(tool.id, moduleCount)
-              : getToolCompletion(tool.id);
+            const completion = getToolCompletion(tool.id, moduleCount);
             const toolProgress = progress.completedModules?.[tool.id] || {};
             const completedCount = Object.values(toolProgress).filter(m => m.completed).length;
             const totalAttempts = Object.values(toolProgress).reduce((acc, m) => acc + (m.attempts || 0), 0);

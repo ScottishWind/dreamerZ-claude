@@ -10,13 +10,13 @@ import {
 import { useAuth } from '../hooks/useAuth';
 import { LANGUAGES } from '../hooks/useLanguage';
 import { ContentManager } from './admin/ContentManager';
+import { formatErrorDetail } from '../lib/utils';
 
 const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
 
 const TABS = [
+  { id: 'content', label: 'Course Manager', icon: BookOpen },
   { id: 'users', label: 'Users', icon: Users },
-  { id: 'content', label: 'Content', icon: BookOpen },
-  { id: 'media', label: 'Media', icon: Upload },
   { id: 'stats', label: 'Overview', icon: BarChart3 },
 ];
 
@@ -32,7 +32,7 @@ const adminFetch = async (path, token, options = {}) => {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || `Request failed (${res.status})`);
+    throw new Error(formatErrorDetail(err.detail) || `Request failed (${res.status})`);
   }
   return res.json();
 };
@@ -45,7 +45,7 @@ const adminUpload = async (path, token, formData) => {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || `Upload failed (${res.status})`);
+    throw new Error(formatErrorDetail(err.detail) || `Upload failed (${res.status})`);
   }
   return res.json();
 };
@@ -1111,7 +1111,7 @@ const StatsTab = ({ token }) => {
 export const AdminPanel = () => {
   const { user, token, isAuthenticated, isLoaded } = useAuth();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('users');
+  const [activeTab, setActiveTab] = useState('content');
 
   useEffect(() => {
     if (isLoaded && (!isAuthenticated || !user?.isAdmin)) {

@@ -8,7 +8,7 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from database import client, create_indexes, seed_data
+from database import init_db, seed_data, engine
 from middleware.security import setup_cors, add_security_headers
 from middleware.logging_mw import log_requests
 from routes import api_router
@@ -41,14 +41,14 @@ app.include_router(api_router)
 # ── Startup / Shutdown ────────────────────────────────────
 @app.on_event("startup")
 async def startup():
-    await create_indexes()
+    await init_db()
     await seed_data()
-    logger.info("Database seeded and indexes created.")
+    logger.info("Database tables created and seeded.")
 
 
 @app.on_event("shutdown")
 async def shutdown():
-    client.close()
+    await engine.dispose()
 
 
 # ── Global Exception Handler ─────────────────────────────

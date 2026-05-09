@@ -7,6 +7,7 @@ import {
 import { LessonEditor } from './LessonEditor';
 import { JourneyPlayer } from '../../components/JourneyPlayer';
 import { publishedCourseToLearnerTool } from './publishedCourseAdapter';
+import { formatErrorDetail } from '../../lib/utils';
 
 const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
 
@@ -21,7 +22,7 @@ const adminFetch = async (path, token, options = {}) => {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || `Request failed (${res.status})`);
+    throw new Error(formatErrorDetail(err.detail) || `Request failed (${res.status})`);
   }
   return res.json();
 };

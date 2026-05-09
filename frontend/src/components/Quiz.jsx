@@ -7,9 +7,10 @@ import {
 import { Button } from './ui/button';
 import confetti from '../utils/confetti';
 
-export const Quiz = ({ questions, onComplete, moduleName, previousAttempts = 0, bestScore = 0 }) => {
+export const Quiz = ({ questions, onComplete, moduleName, previousAttempts = 0, bestScore = 0, passingScore: passingScoreProp }) => {
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState(null);
+  const [selectedAnswers, setSelectedAnswers] = useState([]); // for multi-select
   const [shortAnswer, setShortAnswer] = useState('');
   const [showResult, setShowResult] = useState(false);
   const [showExplanation, setShowExplanation] = useState(false);
@@ -18,12 +19,34 @@ export const Quiz = ({ questions, onComplete, moduleName, previousAttempts = 0, 
   const [answers, setAnswers] = useState([]);
   const [attemptCount, setAttemptCount] = useState(previousAttempts);
 
-  const passingScore = 70; // 70% to pass
+  // Allow the lesson creator to override the pass threshold (1–100). Default 70.
+  const passingScore = (() => {
+    const n = Number(passingScoreProp);
+    if (Number.isFinite(n) && n > 0 && n <= 100) return Math.round(n);
+    return 70;
+  })();
   const passingQuestions = Math.ceil(questions.length * (passingScore / 100));
 
   // Get current question data
   const question = questions[currentQuestion];
-  const questionType = question?.type || 'mcq';
+
+  // Normalise the type field — admin/legacy data may use different names
+  const normaliseType = (rawType, q) => {
+    const t = String(rawType || '').toLowerCase().replace(/_/g, '-');
+    if (t === 'multiple-choice' || t === 'mcq') return 'mcq';
+    if (t === 'multi-select' || t === 'multiselect' || t === 'checkbox') return 'multi-select';
+    if (t === 'true-false' || t === 'truefalse' || t === 'boolean') return 'true-false';
+    if (
+      t === 'short-answer' || t === 'descriptive' || t === 'text' ||
+      t === 'free-text' || t === 'open-ended' || t === 'short'
+    ) {
+      return 'short-answer';
+    }
+    // Fall back: if there are options, treat as MCQ; else as short-answer text.
+    if (q && Array.isArray(q.options) && q.options.length > 0) return 'mcq';
+    return 'short-answer';
+  };
+  const questionType = normaliseType(question?.type, question);
 
   // Check if short answer is correct (keyword matching)
   const checkShortAnswer = useCallback((answer, correctAnswer) => {
@@ -48,6 +71,16 @@ export const Quiz = ({ questions, onComplete, moduleName, previousAttempts = 0, 
     setSelectedAnswer(answerIndex);
   };
 
+  // Toggle answer for multi-select
+  const handleAnswerToggle = (answerIndex) => {
+    if (showResult) return;
+    setSelectedAnswers((prev) =>
+      prev.includes(answerIndex)
+        ? prev.filter((i) => i !== answerIndex)
+        : [...prev, answerIndex].sort((a, b) => a - b),
+    );
+  };
+
   // Handle short answer input
   const handleShortAnswerChange = (e) => {
     if (showResult) return;
@@ -57,13 +90,20 @@ export const Quiz = ({ questions, onComplete, moduleName, previousAttempts = 0, 
   // Check the answer
   const handleSubmit = useCallback(() => {
     let isCorrect = false;
-    
+
     if (questionType === 'short-answer') {
       if (!shortAnswer.trim()) return;
       isCorrect = checkShortAnswer(shortAnswer, question.correctAnswer);
+    } else if (questionType === 'multi-select') {
+      if (!selectedAnswers || selectedAnswers.length === 0) return;
+      const correct = Array.isArray(question.correctAnswers) ? [...question.correctAnswers].sort() : [];
+      const chosen = [...selectedAnswers].sort();
+      isCorrect =
+        correct.length === chosen.length &&
+        correct.every((v, i) => v === chosen[i]);
     } else {
       if (selectedAnswer === null) return;
-      
+
       if (questionType === 'true-false') {
         const correctIndex = question.correctAnswer === true ? 0 : 1;
         isCorrect = selectedAnswer === correctIndex;
@@ -71,19 +111,22 @@ export const Quiz = ({ questions, onComplete, moduleName, previousAttempts = 0, 
         isCorrect = selectedAnswer === question.correctAnswer;
       }
     }
-    
+
     setShowResult(true);
-    setAnswers(prev => [...prev, { 
-      questionIndex: currentQuestion, 
-      selected: questionType === 'short-answer' ? shortAnswer : selectedAnswer, 
+    setAnswers(prev => [...prev, {
+      questionIndex: currentQuestion,
+      selected:
+        questionType === 'short-answer' ? shortAnswer :
+        questionType === 'multi-select' ? selectedAnswers :
+        selectedAnswer,
       correct: isCorrect,
       type: questionType
     }]);
-    
+
     if (isCorrect) {
       setScore(prev => prev + 1);
     }
-  }, [selectedAnswer, shortAnswer, question, currentQuestion, questionType, checkShortAnswer]);
+  }, [selectedAnswer, selectedAnswers, shortAnswer, question, currentQuestion, questionType, checkShortAnswer]);
 
   // Move to next question or finish
   const handleNext = useCallback(() => {
@@ -92,6 +135,7 @@ export const Quiz = ({ questions, onComplete, moduleName, previousAttempts = 0, 
     if (currentQuestion < questions.length - 1) {
       setCurrentQuestion(prev => prev + 1);
       setSelectedAnswer(null);
+      setSelectedAnswers([]);
       setShortAnswer('');
       setShowResult(false);
     } else {
@@ -112,6 +156,7 @@ export const Quiz = ({ questions, onComplete, moduleName, previousAttempts = 0, 
   const handleRetry = () => {
     setCurrentQuestion(0);
     setSelectedAnswer(null);
+    setSelectedAnswers([]);
     setShortAnswer('');
     setShowResult(false);
     setShowExplanation(false);
@@ -188,6 +233,72 @@ export const Quiz = ({ questions, onComplete, moduleName, previousAttempts = 0, 
       })}
     </div>
   );
+
+  // Render Multi-Select options (checkbox-style; multiple correct answers)
+  const renderMultiSelectOptions = () => {
+    const correctSet = new Set(Array.isArray(question.correctAnswers) ? question.correctAnswers : []);
+    return (
+      <div className="space-y-3" role="group" aria-label="Multi-select answer options">
+        <p className="text-xs font-medium text-slate-500 mb-1">
+          Select all that apply
+        </p>
+        {question.options.map((option, index) => {
+          const isSelected = selectedAnswers.includes(index);
+          const isCorrect = correctSet.has(index);
+
+          let buttonStyle = 'bg-white border-slate-200 hover:border-primary/50 hover:bg-primary/5';
+          if (showResult) {
+            if (isCorrect && isSelected) {
+              buttonStyle = 'bg-emerald-50 border-emerald-300 ring-2 ring-emerald-200';
+            } else if (isCorrect && !isSelected) {
+              buttonStyle = 'bg-emerald-50/60 border-emerald-200';
+            } else if (!isCorrect && isSelected) {
+              buttonStyle = 'bg-rose-50 border-rose-300';
+            } else {
+              buttonStyle = 'bg-slate-50 border-slate-200 opacity-60';
+            }
+          } else if (isSelected) {
+            buttonStyle = 'bg-primary/10 border-primary ring-2 ring-primary/20';
+          }
+
+          return (
+            <motion.button
+              key={index}
+              onClick={() => handleAnswerToggle(index)}
+              disabled={showResult}
+              whileHover={!showResult ? { scale: 1.01, x: 4 } : {}}
+              whileTap={!showResult ? { scale: 0.99 } : {}}
+              className={`w-full p-4 rounded-2xl text-left transition-all flex items-center gap-4 border-2 ${buttonStyle}`}
+              data-testid={`quiz-multi-option-${index}`}
+            >
+              <div
+                className={`w-10 h-10 rounded-lg flex items-center justify-center text-sm font-bold transition-all ${
+                  showResult && isCorrect
+                    ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-200'
+                    : showResult && isSelected && !isCorrect
+                      ? 'bg-rose-500 text-white'
+                      : isSelected
+                        ? 'bg-primary text-white shadow-lg shadow-primary/30'
+                        : 'bg-slate-100 text-slate-500'
+                }`}
+              >
+                {isSelected ? <CheckCircle2 className="w-5 h-5" /> : String.fromCharCode(65 + index)}
+              </div>
+              <span className={`flex-grow font-medium ${showResult && !isCorrect && !isSelected ? 'text-slate-400' : 'text-slate-700'}`}>
+                {option}
+              </span>
+              {showResult && isCorrect && (
+                <CheckCircle2 className="w-6 h-6 text-emerald-500 flex-shrink-0" />
+              )}
+              {showResult && isSelected && !isCorrect && (
+                <XCircle className="w-6 h-6 text-rose-500 flex-shrink-0" />
+              )}
+            </motion.button>
+          );
+        })}
+      </div>
+    );
+  };
 
   // Render True/False options
   const renderTrueFalseOptions = () => {
@@ -444,13 +555,21 @@ export const Quiz = ({ questions, onComplete, moduleName, previousAttempts = 0, 
       {/* Question Type Badge */}
       <div className="flex items-center gap-2">
         <span className={`px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wide ${
-          questionType === 'mcq' 
-            ? 'bg-blue-100 text-blue-700' 
-            : questionType === 'true-false'
-              ? 'bg-purple-100 text-purple-700'
-              : 'bg-amber-100 text-amber-700'
+          questionType === 'mcq'
+            ? 'bg-blue-100 text-blue-700'
+            : questionType === 'multi-select'
+              ? 'bg-indigo-100 text-indigo-700'
+              : questionType === 'true-false'
+                ? 'bg-purple-100 text-purple-700'
+                : 'bg-amber-100 text-amber-700'
         }`}>
-          {questionType === 'mcq' ? 'Multiple Choice' : questionType === 'true-false' ? 'True or False' : 'Short Answer'}
+          {questionType === 'mcq'
+            ? 'Multiple Choice'
+            : questionType === 'multi-select'
+              ? 'Multi-Select'
+              : questionType === 'true-false'
+                ? 'True or False'
+                : 'Descriptive'}
         </span>
         {question.explanation && (
           <span className="text-xs text-slate-400">• Explanation available</span>
@@ -466,12 +585,25 @@ export const Quiz = ({ questions, onComplete, moduleName, previousAttempts = 0, 
           exit={{ opacity: 0, x: -30 }}
           transition={{ duration: 0.3 }}
         >
-          <h4 className="text-xl font-bold text-slate-900 mb-6 leading-relaxed" data-testid="quiz-question">
+          <h4 className="text-xl font-bold text-slate-900 mb-4 leading-relaxed" data-testid="quiz-question">
             {question.question}
           </h4>
 
+          {/* Optional question image */}
+          {(question.image_url || question.image_asset_id) && (
+            <div className="mb-6 rounded-2xl overflow-hidden border border-slate-200 bg-slate-50 inline-block max-w-full">
+              <img
+                src={question.image_url || `${(process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '')}/api/content/media/${question.image_asset_id}`}
+                alt="Question illustration"
+                className="max-h-72 object-contain"
+                loading="lazy"
+              />
+            </div>
+          )}
+
           {/* Render appropriate question type */}
           {questionType === 'mcq' && renderMCQOptions()}
+          {questionType === 'multi-select' && renderMultiSelectOptions()}
           {questionType === 'true-false' && renderTrueFalseOptions()}
           {questionType === 'short-answer' && renderShortAnswer()}
         </motion.div>
@@ -519,7 +651,13 @@ export const Quiz = ({ questions, onComplete, moduleName, previousAttempts = 0, 
           {!showResult ? (
             <Button
               onClick={handleSubmit}
-              disabled={questionType === 'short-answer' ? !shortAnswer.trim() : selectedAnswer === null}
+              disabled={
+                questionType === 'short-answer'
+                  ? !shortAnswer.trim()
+                  : questionType === 'multi-select'
+                    ? selectedAnswers.length === 0
+                    : selectedAnswer === null
+              }
               className="bg-gradient-to-r from-primary to-violet-600 hover:from-primary/90 hover:to-violet-600/90 text-white px-6 py-3 rounded-xl font-semibold shadow-lg shadow-primary/20 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none transition-all"
               data-testid="quiz-submit-btn"
             >

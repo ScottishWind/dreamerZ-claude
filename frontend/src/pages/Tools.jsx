@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { ToolCard } from '../components/ToolCard';
+import { CourseCard } from '../components/CourseCard';
 import { useProgress } from '../hooks/useProgress';
 import { useCurriculum } from '../hooks/useCurriculum';
 import { ProgressDashboard } from '../components/ProgressDashboard';
@@ -350,9 +350,9 @@ export const Tools = () => {
                   )}
                   <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6" data-testid="tools-grid">
                     {filteredToolsData.map((tool, index) => (
-                      <ToolCard
+                      <CourseCard
                         key={tool.id}
-                        tool={tool}
+                        course={tool}
                         index={index}
                         completion={getToolCompletion(tool.id)}
                       />

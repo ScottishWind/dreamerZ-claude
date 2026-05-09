@@ -8,9 +8,12 @@ import jwt
 from fastapi import Header, HTTPException
 from jwt import ExpiredSignatureError, InvalidTokenError
 from passlib.context import CryptContext
+from sqlalchemy import select, or_
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRATION_MINUTES, ADMIN_EMAILS
-from database import db
+from database import async_session
+from models.sql_models import User
 from utils.sanitizers import sanitize_str
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -47,20 +50,49 @@ def decode_access_token(token: str) -> dict:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
-async def get_user_by_login_identifier(
-    username: Optional[str], email: Optional[str]
-):
-    """Look up a user by email or username. Returns user document or None.
+def _user_to_dict(user: User) -> dict:
+    """Convert a User ORM instance to the dict shape exposed by the auth API."""
+    return {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "hashed_password": user.hashed_password,
+        "preferred_language": user.preferred_language or "en",
+        "is_admin": user.is_admin,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+        "updated_at": user.updated_at.isoformat() if user.updated_at else None,
+        "last_login": user.last_login.isoformat() if user.last_login else None,
+    }
 
-    FIXED: This function is now async and properly awaits Motor queries.
-    """
-    if email:
-        email = sanitize_str(email, "email").lower()
-        return await db.users.find_one({"email": email})
-    if username:
-        username = sanitize_str(username, "username").lower()
-        return await db.users.find_one({"username": username})
-    return None
+
+async def get_user_by_login_identifier(
+    username: Optional[str], email: Optional[str], session: Optional[AsyncSession] = None,
+):
+    """Look up a user by email or username. Returns user dict or None."""
+    close_session = False
+    if session is None:
+        session = async_session()
+        close_session = True
+
+    try:
+        if email:
+            email = sanitize_str(email, "email").lower()
+            result = await session.execute(
+                select(User).where(User.email == email)
+            )
+        elif username:
+            username = sanitize_str(username, "username").lower()
+            result = await session.execute(
+                select(User).where(User.username == username)
+            )
+        else:
+            return None
+
+        user = result.scalars().first()
+        return _user_to_dict(user) if user else None
+    finally:
+        if close_session:
+            await session.close()
 
 
 async def get_current_user(authorization: Optional[str] = Header(None)):
@@ -74,12 +106,20 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
     username = payload.get("sub")
     if not username:
         raise HTTPException(status_code=401, detail="Invalid token payload")
-    user = await db.users.find_one(
-        {"username": username.lower()}, {"hashed_password": 0}
-    )
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(User).where(User.username == username.lower())
+        )
+        user = result.scalars().first()
+
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
-    return user
+
+    # Return dict without hashed_password
+    d = _user_to_dict(user)
+    d.pop("hashed_password", None)
+    return d
 
 
 def is_admin(user: dict) -> bool:
