@@ -230,6 +230,31 @@ export const useProgress = () => {
     setProgress(defaultProgress);
   }, []);
 
+  // Clear progress for a specific course
+  const clearCourseProgress = useCallback((toolId) => {
+    setProgress(prev => {
+      // Calculate XP to subtract from total
+      const toolProgress = prev.completedModules[toolId] || {};
+      const completedCount = Object.values(toolProgress).filter(m => m.completed).length;
+      
+      // For API-loaded tools not in static toolsData, assume 25 XP per module
+      const xpToSubtract = completedCount * 25;
+      
+      return {
+        ...prev,
+        completedModules: {
+          ...prev.completedModules,
+          [toolId]: {}
+        },
+        lastActive: {
+          ...prev.lastActive,
+          [toolId]: null
+        },
+        totalXP: Math.max(0, prev.totalXP - xpToSubtract)
+      };
+    });
+  }, []);
+
   // Award badge
   const awardBadge = useCallback((badgeId, badgeName) => {
     setProgress(prev => {
@@ -310,6 +335,7 @@ export const useProgress = () => {
     getOverallCompletion,
     isModuleUnlocked,
     resetProgress,
+    clearCourseProgress,
     awardBadge,
     updateSettings,
     getLastActiveModule,

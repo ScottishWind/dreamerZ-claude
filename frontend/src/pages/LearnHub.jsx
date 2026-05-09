@@ -120,7 +120,8 @@ export const LearnHub = () => {
     getOverallCompletion,
     totalXP,
     getStreakInfo,
-    resetProgress
+    resetProgress,
+    clearCourseProgress
   } = useProgress();
   const [viewMode, setViewMode] = useState('catalog'); // 'catalog' or 'progress'
   const [selectedCategory, setSelectedCategory] = useState(null);
@@ -219,15 +220,8 @@ export const LearnHub = () => {
     setEnrollError(null);
     try {
       await deleteCourse(courseDbId);
-      // Clear progress for this specific course
-      const courseId = course.id;
-      setProgress(prev => ({
-        ...prev,
-        completedModules: {
-          ...prev.completedModules,
-          [courseId]: {}
-        }
-      }));
+      // Clear all progress for this specific course
+      clearCourseProgress(course.id);
       await loadCourseEnrollments();
     } catch (err) {
       setEnrollError(err.message || 'Failed to unenroll from course');
