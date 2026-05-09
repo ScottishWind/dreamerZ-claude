@@ -4,6 +4,7 @@ Replaces the 1,032-line server.py monolith with a modular architecture.
 """
 
 import logging
+import os
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -41,7 +42,13 @@ app.include_router(api_router)
 # ── Startup / Shutdown ────────────────────────────────────
 @app.on_event("startup")
 async def startup():
-    await init_db()
+    # Set DB_RESET=true once in the dashboard to drop and recreate the schema
+    # (e.g. after a non-backwards-compatible model change). Unset it after the
+    # first successful boot so subsequent restarts don't wipe data.
+    drop_first = os.environ.get("DB_RESET", "").lower() in ("true", "1", "yes")
+    if drop_first:
+        logger.warning("DB_RESET is set — dropping and recreating all tables.")
+    await init_db(drop_first=drop_first)
     await seed_data()
     logger.info("Database tables created and seeded.")
 
