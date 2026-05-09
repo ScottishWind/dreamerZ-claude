@@ -48,6 +48,36 @@ export const Quiz = ({ questions, onComplete, moduleName, previousAttempts = 0, 
   };
   const questionType = normaliseType(question?.type, question);
 
+  const normalizeAnswerValue = (value) => {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (/^-?\d+$/.test(trimmed)) return Number(trimmed);
+      if (trimmed.toLowerCase() === 'true') return true;
+      if (trimmed.toLowerCase() === 'false') return false;
+      return trimmed;
+    }
+    return value;
+  };
+
+  const isCorrectOptionIndex = (q, idx) => {
+    const correctAnswer = normalizeAnswerValue(q?.correctAnswer);
+    if (typeof correctAnswer === 'number') return idx === correctAnswer;
+    if (typeof correctAnswer === 'string' && Array.isArray(q?.options)) {
+      return String(q.options[idx]).trim() === correctAnswer;
+    }
+    return idx === correctAnswer;
+  };
+
+  const normalizeCorrectAnswers = (q) => {
+    if (Array.isArray(q?.correctAnswers)) {
+      return q.correctAnswers.map(normalizeAnswerValue);
+    }
+    if (typeof q?.correctAnswer === 'string' && q.correctAnswer.includes(',')) {
+      return q.correctAnswer.split(',').map(normalizeAnswerValue);
+    }
+    return [];
+  };
+
   // Check if short answer is correct (keyword matching)
   const checkShortAnswer = useCallback((answer, correctAnswer) => {
     if (!answer || !correctAnswer) return false;
@@ -96,7 +126,7 @@ export const Quiz = ({ questions, onComplete, moduleName, previousAttempts = 0, 
       isCorrect = checkShortAnswer(shortAnswer, question.correctAnswer);
     } else if (questionType === 'multi-select') {
       if (!selectedAnswers || selectedAnswers.length === 0) return;
-      const correct = Array.isArray(question.correctAnswers) ? [...question.correctAnswers].sort() : [];
+      const correct = normalizeCorrectAnswers(question).sort((a, b) => a - b);
       const chosen = [...selectedAnswers].sort();
       isCorrect =
         correct.length === chosen.length &&
@@ -105,10 +135,11 @@ export const Quiz = ({ questions, onComplete, moduleName, previousAttempts = 0, 
       if (selectedAnswer === null) return;
 
       if (questionType === 'true-false') {
-        const correctIndex = question.correctAnswer === true ? 0 : 1;
+        const normalizedCorrect = normalizeAnswerValue(question.correctAnswer);
+        const correctIndex = normalizedCorrect === true ? 0 : 1;
         isCorrect = selectedAnswer === correctIndex;
       } else {
-        isCorrect = selectedAnswer === question.correctAnswer;
+        isCorrect = isCorrectOptionIndex(question, selectedAnswer);
       }
     }
 
@@ -166,77 +197,79 @@ export const Quiz = ({ questions, onComplete, moduleName, previousAttempts = 0, 
   };
 
   // Render options for MCQ
-  const renderMCQOptions = () => (
-    <div className="space-y-3" role="radiogroup" aria-label="Answer options">
-      {question.options.map((option, index) => {
-        const isSelected = selectedAnswer === index;
-        const isCorrect = index === question.correctAnswer;
-        
-        let buttonStyle = 'bg-white border-slate-200 hover:border-primary/50 hover:bg-primary/5';
-        
-        if (showResult) {
-          if (isCorrect) {
-            buttonStyle = 'bg-emerald-50 border-emerald-300 ring-2 ring-emerald-200';
-          } else if (isSelected && !isCorrect) {
-            buttonStyle = 'bg-rose-50 border-rose-300';
-          } else {
-            buttonStyle = 'bg-slate-50 border-slate-200 opacity-60';
-          }
-        } else if (isSelected) {
-          buttonStyle = 'bg-primary/10 border-primary ring-2 ring-primary/20';
-        }
+  const renderMCQOptions = () => {
+    return (
+      <div className="space-y-3" role="radiogroup" aria-label="Answer options">
+        {question.options.map((option, index) => {
+          const isSelected = selectedAnswer === index;
+          const isCorrect = isCorrectOptionIndex(question, index);
 
-        return (
-          <motion.button
-            key={index}
-            onClick={() => handleAnswerSelect(index)}
-            disabled={showResult}
-            whileHover={!showResult ? { scale: 1.01, x: 4 } : {}}
-            whileTap={!showResult ? { scale: 0.99 } : {}}
-            className={`w-full p-4 rounded-2xl text-left transition-all flex items-center gap-4 border-2 ${buttonStyle}`}
-            data-testid={`quiz-option-${index}`}
-          >
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold transition-all ${
-              showResult && isCorrect 
-                ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-200' 
-                : showResult && isSelected && !isCorrect
-                  ? 'bg-rose-500 text-white'
-                  : isSelected 
-                    ? 'bg-primary text-white shadow-lg shadow-primary/30' 
-                    : 'bg-slate-100 text-slate-500'
-            }`}>
-              {String.fromCharCode(65 + index)}
-            </div>
-            <span className={`flex-grow font-medium ${showResult && !isCorrect && !isSelected ? 'text-slate-400' : 'text-slate-700'}`}>
-              {option}
-            </span>
-            {showResult && isCorrect && (
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                className="flex-shrink-0"
-              >
-                <CheckCircle2 className="w-6 h-6 text-emerald-500" />
-              </motion.div>
-            )}
-            {showResult && isSelected && !isCorrect && (
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                className="flex-shrink-0"
-              >
-                <XCircle className="w-6 h-6 text-rose-500" />
-              </motion.div>
-            )}
-          </motion.button>
-        );
-      })}
-    </div>
-  );
+          let buttonStyle = 'bg-white border-slate-200 hover:border-primary/50 hover:bg-primary/5';
+
+          if (showResult) {
+            if (isCorrect) {
+              buttonStyle = 'bg-emerald-50 border-emerald-300 ring-2 ring-emerald-200';
+            } else if (isSelected && !isCorrect) {
+              buttonStyle = 'bg-rose-50 border-rose-300';
+            } else {
+              buttonStyle = 'bg-slate-50 border-slate-200 opacity-60';
+            }
+          } else if (isSelected) {
+            buttonStyle = 'bg-primary/10 border-primary ring-2 ring-primary/20';
+          }
+
+          return (
+            <motion.button
+              key={index}
+              onClick={() => handleAnswerSelect(index)}
+              disabled={showResult}
+              whileHover={!showResult ? { scale: 1.01, x: 4 } : {}}
+              whileTap={!showResult ? { scale: 0.99 } : {}}
+              className={`w-full p-4 rounded-2xl text-left transition-all flex items-center gap-4 border-2 ${buttonStyle}`}
+              data-testid={`quiz-option-${index}`}
+            >
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold transition-all ${
+                showResult && isCorrect
+                  ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-200'
+                  : showResult && isSelected && !isCorrect
+                    ? 'bg-rose-500 text-white'
+                    : isSelected
+                      ? 'bg-primary text-white shadow-lg shadow-primary/30'
+                      : 'bg-slate-100 text-slate-500'
+              }`}>
+                {String.fromCharCode(65 + index)}
+              </div>
+              <span className={`flex-grow font-medium ${showResult && !isCorrect && !isSelected ? 'text-slate-400' : 'text-slate-700'}`}>
+                {option}
+              </span>
+              {showResult && isCorrect && (
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  className="flex-shrink-0"
+                >
+                  <CheckCircle2 className="w-6 h-6 text-emerald-500" />
+                </motion.div>
+              )}
+              {showResult && isSelected && !isCorrect && (
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  className="flex-shrink-0"
+                >
+                  <XCircle className="w-6 h-6 text-rose-500" />
+                </motion.div>
+              )}
+            </motion.button>
+          );
+        })}
+      </div>
+    );
+  };
 
   // Render Multi-Select options (checkbox-style; multiple correct answers)
   const renderMultiSelectOptions = () => {
-    const correctSet = new Set(Array.isArray(question.correctAnswers) ? question.correctAnswers : []);
+    const correctSet = new Set(normalizeCorrectAnswers(question));
     return (
       <div className="space-y-3" role="group" aria-label="Multi-select answer options">
         <p className="text-xs font-medium text-slate-500 mb-1">
@@ -302,6 +335,7 @@ export const Quiz = ({ questions, onComplete, moduleName, previousAttempts = 0, 
 
   // Render True/False options
   const renderTrueFalseOptions = () => {
+    const normalizedCorrect = normalizeAnswerValue(question.correctAnswer);
     const options = [
       { label: 'True', value: true, icon: '✓' },
       { label: 'False', value: false, icon: '✗' }
@@ -311,8 +345,7 @@ export const Quiz = ({ questions, onComplete, moduleName, previousAttempts = 0, 
       <div className="grid grid-cols-2 gap-4">
         {options.map((option, index) => {
           const isSelected = selectedAnswer === index;
-          const isCorrectAnswer = question.correctAnswer === option.value;
-          const correctIndex = question.correctAnswer === true ? 0 : 1;
+          const isCorrectAnswer = normalizedCorrect === option.value;
           
           let buttonStyle = 'bg-white border-slate-200 hover:border-primary/50';
           

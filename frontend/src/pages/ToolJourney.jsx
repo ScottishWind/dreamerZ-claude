@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { BookOpen, FlaskConical, MessageCircle, ArrowLeft } from 'lucide-react';
 import { useProgress } from '../hooks/useProgress';
 import { useLanguage } from '../hooks/useLanguage';
+import { useLearningProgress } from '../hooks/useLearningProgress';
 import { JourneyPlayer } from '../components/JourneyPlayer';
 import { PromptLabPanel } from '../components/PromptLabPanel';
 import { RoleplayChat } from '../components/RoleplayChat';
@@ -27,6 +28,7 @@ export const ToolJourney = () => {
   } = useProgress();
 
   const { language } = useLanguage();
+  const { startCourse, loadCourseEnrollment } = useLearningProgress();
   const isAITool = AI_TOOL_IDS.includes(toolId);
   const isEnglish = toolId === 'spoken-english-30day';
 
@@ -96,6 +98,19 @@ export const ToolJourney = () => {
       navigate('/learn');
     }
   }, [isLoading, tool, navigate]);
+
+  // Start course enrollment when tool is loaded
+  useEffect(() => {
+    if (tool && tool.id) {
+      // Try to load existing enrollment first
+      loadCourseEnrollment(tool.id).catch(() => {
+        // If no enrollment exists, start a new one
+        startCourse(tool.id).catch((err) => {
+          console.error('Failed to start course enrollment:', err);
+        });
+      });
+    }
+  }, [tool, startCourse, loadCourseEnrollment]);
 
   if (isLoading) {
     return (

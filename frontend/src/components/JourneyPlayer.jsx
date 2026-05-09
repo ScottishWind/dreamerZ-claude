@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ChevronLeft, ChevronRight, ChevronDown, Lock, CheckCircle2,
@@ -15,6 +15,7 @@ import { Progress } from './ui/progress';
 import { SafetyBanner } from './SafetyBanner';
 import { CoursePreviewVideo } from './CoursePreviewVideo';
 import { MarkdownContent } from './MarkdownContent';
+import { useLearningProgress } from '../hooks/useLearningProgress';
 
 const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
 
@@ -117,6 +118,8 @@ export const JourneyPlayer = ({
   previewMode = false,
 }) => {
   const course = courseProp || tool;
+  const { startLesson, sendLessonHeartbeat, completeLesson, startAssessment, submitAssessment, getAttemptsCount } = useLearningProgress();
+  const heartbeatIntervalRef = useRef(null);
 
   // Support both legacy flat modules and new hierarchical sections structure
   // If sections are provided, use them; otherwise flatten modules for backward compatibility
@@ -157,9 +160,27 @@ export const JourneyPlayer = ({
   const [contentSection, setContentSection] = useState('learn'); // 'learn', 'example', 'activity', 'vocab', 'speak'
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState(() => new Set());
+  const [quizAttempts, setQuizAttempts] = useState(0);
 
   // Derive activeModule early so callbacks can reference it
   const activeModule = allLessons[activeModuleIndex];
+
+  // Load quiz attempt count when quiz section is shown
+  useEffect(() => {
+    const loadQuizAttempts = async () => {
+      if (activeModule && (contentSection === 'quiz' || showQuiz)) {
+        const quizId = activeModule?.quiz?.id || activeModule?.id;
+        try {
+          const count = await getAttemptsCount('quiz', quizId);
+          setQuizAttempts(count);
+        } catch (err) {
+          console.error('Failed to load quiz attempts:', err);
+          setQuizAttempts(0);
+        }
+      }
+    };
+    loadQuizAttempts();
+  }, [activeModule?.id, contentSection, showQuiz, getAttemptsCount]);
 
   const getSpeechText = useCallback(() => {
     if (!activeModule) return '';
@@ -202,6 +223,29 @@ export const JourneyPlayer = ({
     };
   }, [stopSpeech]);
 
+  // Start lesson progress when active lesson changes
+  useEffect(() => {
+    if (activeModule && activeModule.id && !previewMode) {
+      startLesson(activeModule.id, course.id, activeModule.moduleId || activeModule.sectionId).catch((err) => {
+        console.error('Failed to start lesson progress:', err);
+      });
+
+      // Start heartbeat interval (every 30 seconds)
+      heartbeatIntervalRef.current = setInterval(() => {
+        sendLessonHeartbeat(activeModule.id, 30).catch((err) => {
+          console.error('Failed to send lesson heartbeat:', err);
+        });
+      }, 30000);
+
+      return () => {
+        if (heartbeatIntervalRef.current) {
+          clearInterval(heartbeatIntervalRef.current);
+          heartbeatIntervalRef.current = null;
+        }
+      };
+    }
+  }, [activeModule, course.id, previewMode, startLesson, sendLessonHeartbeat]);
+
   // Find initial module or first unlocked incomplete module
   useEffect(() => {
     if (initialModuleId) {
@@ -233,11 +277,54 @@ export const JourneyPlayer = ({
   const progressPercent = Math.round((completedCount / allLessons.length) * 100);
 
   // Handle quiz completion
-  const handleQuizComplete = useCallback((score, passed, attempts) => {
-    if (passed) {
-      completeModule(course.id, activeModule.id, score);
+  const handleQuizComplete = useCallback(async (score, passed, attempts) => {
+    if (previewMode) {
+      if (passed) {
+        completeModule(course.id, activeModule.id, score);
+      }
+      return;
     }
-  }, [course.id, activeModule?.id, completeModule]);
+
+    try {
+      // Get attempt count for this quiz
+      const quizId = activeModule?.quiz?.id || activeModule?.id;
+      const attemptCount = await getAttemptsCount('quiz', quizId);
+      setQuizAttempts(attemptCount);
+
+      // Start new assessment attempt
+      const attempt = await startAssessment({
+        course_id: course.id,
+        assessment_type: 'quiz',
+        assessment_id: quizId,
+        attempt_number: attemptCount + 1,
+        lesson_id: activeModule?.id,
+        module_id: activeModule?.moduleId || activeModule?.sectionId,
+      });
+
+      // Submit the attempt with score
+      await submitAssessment(
+        attempt.id,
+        score,
+        100, // max score
+        passed,
+        0, // time spent (can be calculated if needed)
+        passed ? 'Great job! Quiz completed successfully.' : 'Keep practicing!'
+      );
+
+      if (passed) {
+        completeModule(course.id, activeModule.id, score);
+        completeLesson(activeModule.id).catch((err) => {
+          console.error('Failed to complete lesson:', err);
+        });
+      }
+    } catch (err) {
+      console.error('Failed to submit quiz attempt:', err);
+      // Fallback to local completion if API fails
+      if (passed) {
+        completeModule(course.id, activeModule.id, score);
+      }
+    }
+  }, [course.id, activeModule, previewMode, completeModule, getAttemptsCount, startAssessment, submitAssessment, completeLesson]);
 
   // Navigate to next module
   const goToNextModule = useCallback(() => {
@@ -267,6 +354,7 @@ export const JourneyPlayer = ({
       setActiveModuleIndex(index);
       setShowQuiz(false);
       setContentSection('learn');
+      setQuizAttempts(0);
     }
   }, [allLessons, course.id, isModuleUnlocked]);
 
@@ -851,7 +939,7 @@ export const JourneyPlayer = ({
                                 questions={quizQuestions}
                                 moduleName={activeModule.title}
                                 onComplete={handleQuizComplete}
-                                previousAttempts={moduleProgress?.attempts || 0}
+                                previousAttempts={quizAttempts}
                                 bestScore={moduleProgress?.quizScore || 0}
                                 passingScore={quizPassingScore}
                               />
@@ -959,7 +1047,7 @@ export const JourneyPlayer = ({
                         questions={Array.isArray(activeModule.quiz) ? activeModule.quiz : activeModule.quiz?.questions || []}
                         moduleName={activeModule.title}
                         onComplete={handleQuizComplete}
-                        previousAttempts={moduleProgress?.attempts || 0}
+                        previousAttempts={quizAttempts}
                         bestScore={moduleProgress?.quizScore || 0}
                         passingScore={quizPassingScore}
                       />
