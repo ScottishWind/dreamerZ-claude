@@ -111,6 +111,147 @@ const CourseCatalogCard = ({ course, index, isEnrolled, isEnrolling, onEnroll })
   );
 };
 
+// Per-category visual treatment for known slugs. Any category the admin
+// creates that we haven't explicitly styled falls back to DEFAULT_STYLE,
+// so nothing renders blank or breaks.
+const CATEGORY_STYLES = {
+  'ai-learning': {
+    gradient: 'from-indigo-600 to-violet-600',
+    accentText: 'text-indigo-100',
+    ctaText: 'text-indigo-600',
+    ctaHover: 'group-hover:bg-indigo-50',
+    pillActive: 'bg-indigo-600 text-white',
+    iconEmoji: '🤖',
+    Icon: Brain,
+  },
+  'spoken-writing-english': {
+    gradient: 'from-rose-500 to-pink-500',
+    accentText: 'text-rose-100',
+    ctaText: 'text-rose-600',
+    ctaHover: 'group-hover:bg-rose-50',
+    pillActive: 'bg-rose-500 text-white',
+    iconEmoji: '🗣️',
+    Icon: Mic,
+  },
+  'vibe-code': {
+    gradient: 'from-emerald-600 to-teal-600',
+    accentText: 'text-emerald-100',
+    ctaText: 'text-emerald-600',
+    ctaHover: 'group-hover:bg-emerald-50',
+    pillActive: 'bg-emerald-600 text-white',
+    iconEmoji: '💻',
+    Icon: Sparkles,
+  },
+  'vblog': {
+    gradient: 'from-amber-500 to-orange-500',
+    accentText: 'text-amber-100',
+    ctaText: 'text-amber-600',
+    ctaHover: 'group-hover:bg-amber-50',
+    pillActive: 'bg-amber-500 text-white',
+    iconEmoji: '🎬',
+    Icon: Sparkles,
+  },
+};
+
+const DEFAULT_STYLE = {
+  gradient: 'from-slate-700 to-slate-900',
+  accentText: 'text-slate-200',
+  ctaText: 'text-slate-800',
+  ctaHover: 'group-hover:bg-slate-100',
+  pillActive: 'bg-slate-800 text-white',
+  iconEmoji: '📚',
+  Icon: BookOpen,
+};
+
+const styleFor = (slug) => CATEGORY_STYLES[slug] || DEFAULT_STYLE;
+
+const titleCase = (s) =>
+  String(s || '').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+const CategoryBanner = ({ category, courses, completedModules }) => {
+  const style = styleFor(category.id);
+  const StyleIcon = style.Icon;
+  const courseCount = courses.length;
+  const totalModules = courses.reduce((sum, c) => sum + (c.modules?.length || 0), 0);
+  const completionPct = totalModules > 0
+    ? Math.round((completedModules / totalModules) * 100)
+    : 0;
+  const firstCourse = courses[0];
+  const ctaLink = firstCourse ? `/learn/${firstCourse.id}` : '/learn';
+  const hasProgress = completionPct > 0;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="mb-6"
+    >
+      <Link to={ctaLink} className="block">
+        <div className={`bg-gradient-to-r ${style.gradient} rounded-2xl p-6 lg:p-8 hover:shadow-xl transition-all group`}>
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+            <div className="flex items-start gap-4">
+              <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0">
+                {style.iconEmoji}
+              </div>
+              <div>
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <span className="bg-white/20 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                    {courseCount} {courseCount === 1 ? 'COURSE' : 'COURSES'}
+                  </span>
+                  <span className="bg-white/20 text-white text-xs font-semibold px-2 py-0.5 rounded-full">
+                    {totalModules} Modules
+                  </span>
+                  <span className="bg-emerald-400 text-slate-900 text-xs font-bold px-2 py-0.5 rounded-full">FREE</span>
+                </div>
+                <h3 className="text-xl font-bold text-white mb-1">{category.name || titleCase(category.id)}</h3>
+                {category.description && (
+                  <p className={`${style.accentText} text-sm max-w-xl`}>
+                    {category.description}
+                  </p>
+                )}
+                {hasProgress && (
+                  <div className="mt-2 max-w-xs">
+                    <div className="h-2 bg-white/20 rounded-full overflow-hidden">
+                      <div className="h-full bg-white rounded-full transition-all" style={{ width: `${completionPct}%` }} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-3 flex-shrink-0">
+              <div className="hidden sm:flex gap-2">
+                {hasProgress ? (
+                  <>
+                    <div className="bg-white/15 backdrop-blur rounded-xl px-3 py-2 text-center min-w-[70px]">
+                      <div className="text-lg font-bold text-white">{completionPct}%</div>
+                      <div className={`text-xs ${style.accentText}`}>Complete</div>
+                    </div>
+                    <div className="bg-white/15 backdrop-blur rounded-xl px-3 py-2 text-center min-w-[70px]">
+                      <div className="text-lg font-bold text-white">{completedModules}/{totalModules}</div>
+                      <div className={`text-xs ${style.accentText}`}>Modules</div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="bg-white/15 backdrop-blur rounded-xl px-3 py-2 text-center">
+                    <StyleIcon className="w-4 h-4 text-white mx-auto mb-1" />
+                    <div className={`text-xs ${style.accentText}`}>
+                      {courseCount} {courseCount === 1 ? 'Course' : 'Courses'}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className={`bg-white ${style.ctaText} rounded-xl px-5 py-3 font-semibold ${style.ctaHover} transition-colors flex items-center gap-2`}>
+                {hasProgress ? 'Continue' : 'Start Now'}
+                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </Link>
+    </motion.div>
+  );
+};
+
 export const LearnHub = () => {
   const { tools: apiTools, isLoading, error } = useCurriculum();
   const { courseEnrollments, loadCourseEnrollments, startCourse } = useLearningProgress();
@@ -191,6 +332,8 @@ export const LearnHub = () => {
       setEnrollError('Course cannot be enrolled because its numeric ID is missing.');
       return;
     }
+    return list;
+  }, [activeCategory, query, apiTools, coursesByCategory]);
 
     setEnrollError(null);
     setEnrollingCourseId(courseDbId);
@@ -219,6 +362,12 @@ export const LearnHub = () => {
       </div>
     );
   }
+
+  const bannersToShow = !query
+    ? (activeCategory === 'all'
+        ? visibleCategories
+        : visibleCategories.filter((c) => c.id === activeCategory))
+    : [];
 
   return (
     <div className="min-h-screen bg-slate-50 pt-24 pb-16">

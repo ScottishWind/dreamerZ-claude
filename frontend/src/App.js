@@ -12,6 +12,7 @@ import { Parents } from "./pages/Parents";
 import { Account } from "./pages/Account";
 import { Login } from "./pages/Login";
 import { Register } from "./pages/Register";
+import { ChangePassword } from "./pages/ChangePassword";
 import { AdminPanel } from "./pages/AdminPanel";
 import { ParentDashboard } from "./pages/ParentDashboard";
 import { ParentStudentDetail } from "./pages/ParentStudentDetail";
@@ -45,6 +46,7 @@ function App() {
                   <Route path="/account" element={<Account />} />
                   <Route path="/login" element={<Login />} />
                   <Route path="/register" element={<Register />} />
+                  <Route path="/reset-password" element={<ChangePassword />} />
                   <Route path="/admin" element={<AdminPanel />} />
 
                   {/* Parent dashboard routes */}

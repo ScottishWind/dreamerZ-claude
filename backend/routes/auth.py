@@ -1,8 +1,10 @@
-"""Authentication routes — register, login, profile."""
+"""Authentication routes — register, login, profile, change password."""
 
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +21,8 @@ from services.auth_service import (
 )
 from services.email_service import send_welcome_email
 from middleware.rate_limit import check_auth_rate_limit
+
+logger = logging.getLogger(__name__)
 
 _VALID_LANG_CODES = {lang["code"] for lang in SUPPORTED_LANGUAGES}
 
@@ -179,3 +183,59 @@ async def update_language(
 async def get_supported_languages():
     """Return the list of supported languages."""
     return SUPPORTED_LANGUAGES
+
+
+# ── Change password (authenticated) ──────────────────────
+
+class ChangePasswordRequest(BaseModel):
+    new_password: str = Field(..., min_length=8, max_length=128)
+    confirm_password: str = Field(..., min_length=8, max_length=128)
+
+
+@router.post("/change-password", response_model=TokenResponse)
+async def change_password(
+    body: ChangePasswordRequest,
+    current_user: dict = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Set a new password for the currently authenticated user.
+
+    Returns a fresh JWT signed against the new password hash so the user
+    stays logged in seamlessly without having to re-enter credentials.
+    """
+    new_password = body.new_password.strip()
+    confirm = body.confirm_password.strip()
+
+    if new_password != confirm:
+        raise HTTPException(status_code=400, detail="Passwords do not match.")
+    if len(new_password) < 8:
+        raise HTTPException(
+            status_code=400,
+            detail="Password must be at least 8 characters long.",
+        )
+
+    result = await session.execute(
+        select(User).where(User.username == current_user["username"])
+    )
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    user.hashed_password = get_password_hash(new_password)
+    user.updated_at = datetime.now(timezone.utc)
+    await session.commit()
+
+    admin = is_admin(current_user)
+    user_lang = current_user.get("preferred_language", DEFAULT_LANGUAGE)
+    new_token = create_access_token(
+        {"sub": user.username, "email": user.email, "is_admin": admin, "lang": user_lang}
+    )
+
+    return {
+        "access_token": new_token,
+        "username": user.username,
+        "email": user.email,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+        "is_admin": admin,
+        "preferred_language": user_lang,
+    }

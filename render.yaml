@@ -1,3 +1,11 @@
+databases:
+  # ── Postgres ── Free tier ──
+  - name: dreamerz-db
+    plan: free
+    region: oregon
+    databaseName: dreamerz
+    user: dreamerz
+
 services:
   # ── Backend (FastAPI) ── Free tier ──
   - type: web
@@ -10,24 +18,33 @@ services:
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     autoDeploy: true
     envVars:
-      - key: MONGO_URL
-        sync: false  # Set manually in Render dashboard (Atlas connection string)
-      - key: DB_NAME
-        value: dreamerz_beta
+      # Auto-injected internal Postgres connection string. config.py
+      # rewrites `postgres://` to `postgresql+asyncpg://` on import.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: dreamerz-db
+          property: connectionString
       - key: ANTHROPIC_API_KEY
         sync: false  # Set manually in Render dashboard (Claude API key)
       - key: JWT_SECRET
         generateValue: true  # Render auto-generates a secure random value
       - key: CORS_ORIGINS
         sync: false  # Set after frontend deploys (e.g. https://dreamerz-frontend.onrender.com)
+      - key: ADMIN_EMAILS
+        sync: false  # Comma-separated emails granted admin access
+      - key: RESEND_API_KEY
+        sync: false  # API key from resend.com — required for password reset / welcome emails
+      - key: SENDER_EMAIL
+        value: onboarding@resend.dev  # Sandbox sender; replace with verified domain for production
+      - key: FRONTEND_URL
+        sync: false  # e.g. https://dreamerz-frontend.onrender.com — used in reset email link
       - key: PYTHON_VERSION
         value: "3.11.6"
 
-  # ── Frontend (React static) ── Free tier ──
-  - type: static
+  # ── Frontend (React static) ── Free, served via Render's global CDN ──
+  - type: web
+    runtime: static
     name: dreamerz-frontend
-    region: oregon
-    plan: free
     rootDir: frontend
     buildCommand: CI=false yarn install --no-frozen-lockfile && yarn build
     staticPublishPath: build

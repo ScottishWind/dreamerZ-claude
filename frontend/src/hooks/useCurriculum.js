@@ -25,43 +25,57 @@ const formatTool = (tool, modules = []) => ({
 
 export const useCurriculum = () => {
   const [courses, setCourses] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const fetchCourses = useCallback(async () => {
+  const fetchAll = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
     try {
-      const res = await fetch(`${API_BASE}/api/content/tools`);
+      const [toolsRes, catsRes] = await Promise.all([
+        fetch(`${API_BASE}/api/content/tools`),
+        fetch(`${API_BASE}/api/content/categories`),
+      ]);
 
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.detail || data.message || 'Failed to load curriculum content.');
+      if (!toolsRes.ok) {
+        const data = await toolsRes.json().catch(() => ({}));
+        throw new Error(data.detail || data.message || 'Failed to load courses.');
       }
 
-      const toolsData = await res.json();
+      const toolsData = await toolsRes.json();
       const formatted = toolsData.map((tool) => formatTool(tool, tool.modules || []));
-
       setCourses(formatted);
+
+      // Categories endpoint is best-effort; if it fails we silently fall back to
+      // synthesising from courses so the UI still renders something.
+      if (catsRes.ok) {
+        const catsData = await catsRes.json();
+        setCategories(Array.isArray(catsData) ? catsData : []);
+      } else {
+        setCategories([]);
+      }
     } catch (err) {
       setError(err.message || 'Unable to load curriculum content.');
       setCourses([]);
+      setCategories([]);
     } finally {
       setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchCourses();
-  }, [fetchCourses]);
+    fetchAll();
+  }, [fetchAll]);
 
   return {
     tools: courses,
     courses,
+    categories,
     isLoading,
     error,
-    refresh: fetchCourses
+    refresh: fetchAll
   };
 };
 

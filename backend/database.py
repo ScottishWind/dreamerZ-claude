@@ -206,6 +206,9 @@ async def seed_data():
                     sort_order=sort_idx,
                     status="published",
                     available_languages=["en"],
+                    # /api/content/courses filters on this tag; without it
+                    # the learner-facing site shows zero courses.
+                    tags=["ai-generated"],
                     created_by="system",
                 )
                 course_map[tool_slug] = course

@@ -35,8 +35,10 @@ export const CourseList = ({ token, onSelectCourse, onNewCourse }) => {
     setLoading(true);
     setError('');
     try {
+      // Surface the real error if /courses fails — silent fallback to []
+      // hid 403s from non-admin users and made debugging impossible.
       const [coursesData, catsData] = await Promise.all([
-        adminFetch('/courses', token).catch(() => []),
+        adminFetch('/courses', token),
         adminFetch('/categories', token).catch(() => []),
       ]);
       setCourses(coursesData);

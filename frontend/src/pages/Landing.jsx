@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import {
@@ -9,30 +10,45 @@ import {
 import { Button } from '../components/ui/button';
 import { SEO } from '../components/SEO';
 import { useSiteConfig } from '../hooks/useSiteConfig';
+import { useCurriculum } from '../hooks/useCurriculum';
 
 /* ── Icon lookup (maps DB string → component) ────────── */
 const ICON_MAP = { Brain, Shield, Target, GraduationCap, BookOpen, Mic, Languages, MessageCircle, Users, Clock, Award, Star, CheckCircle };
 const getIcon = (name) => ICON_MAP[name] || BookOpen;
 
-/* ── Course info for display ── */
-const COURSES = [
-  {
-    id: 'ai-learning',
+/* ── Per-category visual treatment for the hero mini cards.
+   Falls back to a neutral default for any category we haven't styled. ── */
+const CATEGORY_VISUAL = {
+  'ai-learning': {
     name: 'AI Learning',
     tagline: 'Master AI tools with hands-on modules',
     emoji: '🤖',
-    gradient: 'from-indigo-600 to-violet-600',
-    coursePath: '/learn'
   },
-  {
-    id: 'spoken-english',
+  'spoken-writing-english': {
     name: 'Spoken English',
     tagline: '30-day course built for Bengali teens',
     emoji: '🗣️',
-    gradient: 'from-rose-500 to-pink-500',
-    coursePath: '/learn/spoken-english-30day'
-  }
-];
+  },
+  'vibe-code': {
+    name: 'Vibe Code',
+    tagline: 'Build real programs with AI as your partner',
+    emoji: '💻',
+  },
+  'vblog': {
+    name: 'Vlog',
+    tagline: 'Plan, record, edit, and publish your first vlog',
+    emoji: '🎬',
+  },
+};
+
+const titleCase = (s) =>
+  String(s || '').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+const visualFor = (cat) => {
+  const v = CATEGORY_VISUAL[cat.id];
+  if (v) return v;
+  return { name: cat.name || titleCase(cat.id), tagline: cat.description || '', emoji: '📚' };
+};
 
 /* ── Component ────────────────────────────────────────── */
 
@@ -42,6 +58,7 @@ export const Landing = () => {
     benefits: apiBenefits, stats: apiStats, aiTools: apiAiTools,
     englishWeeks: apiEnglishWeeks, isLoading
   } = useSiteConfig();
+  const { tools: apiTools, categories: apiCategories } = useCurriculum();
 
   const trustPoints = apiTrustPoints.length ? apiTrustPoints : [];
   const aiToolsList = apiAiTools.length ? apiAiTools : [];
@@ -49,6 +66,39 @@ export const Landing = () => {
   const faqs = apiFaqs.length ? apiFaqs.map(f => ({ q: f.question, a: f.answer })) : [];
   const benefits = apiBenefits.length ? apiBenefits : [];
   const stats = apiStats.length ? apiStats : [];
+
+  // Build the hero "mini course cards" from the live category list. We show
+  // one card per category that has at least one course, link it to the
+  // first course in that category (or just /learn if there's only one).
+  const heroCards = useMemo(() => {
+    const byCat = {};
+    apiTools.forEach((c) => {
+      const cid = c.category_id || 'uncategorized';
+      if (!byCat[cid]) byCat[cid] = [];
+      byCat[cid].push(c);
+    });
+    const known = new Map(apiCategories.map((c) => [c.id, c]));
+    const cardCats = Object.keys(byCat).map(
+      (id) => known.get(id) || { id, name: titleCase(id), description: '' }
+    );
+    return cardCats
+      .map((cat) => {
+        const v = visualFor(cat);
+        const courses = byCat[cat.id] || [];
+        const firstCourse = courses[0];
+        return {
+          id: cat.id,
+          name: v.name,
+          tagline: v.tagline,
+          emoji: v.emoji,
+          coursePath:
+            courses.length === 1 && firstCourse
+              ? `/learn/${firstCourse.id}`
+              : '/learn',
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [apiTools, apiCategories]);
 
   return (
     <>
@@ -117,34 +167,38 @@ export const Landing = () => {
             </motion.div>
           </div>
 
-          {/* Mini course cards floating below hero */}
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3, duration: 0.5 }}
-            className="grid sm:grid-cols-2 gap-4 mt-12 max-w-3xl mx-auto"
-          >
-            {COURSES.map((course) => (
-              <Link key={course.id} to={course.coursePath} className="block group">
-                <div className="bg-white/10 backdrop-blur border border-white/10 rounded-2xl p-5 hover:bg-white/15 transition-all">
-                  <div className="flex items-center gap-3 mb-2">
-                    <span className="text-2xl">{course.emoji}</span>
-                    <div>
-                      <div className="font-bold text-white text-lg">{course.name}</div>
-                      <div className="text-xs text-slate-400">{course.tagline}</div>
+          {/* Mini course cards floating below hero (one per category that has courses) */}
+          {heroCards.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3, duration: 0.5 }}
+              className={`grid gap-4 mt-12 max-w-4xl mx-auto ${
+                heroCards.length === 1 ? '' : heroCards.length === 2 ? 'sm:grid-cols-2' : 'sm:grid-cols-2 lg:grid-cols-4'
+              }`}
+            >
+              {heroCards.map((card) => (
+                <Link key={card.id} to={card.coursePath} className="block group">
+                  <div className="bg-white/10 backdrop-blur border border-white/10 rounded-2xl p-5 hover:bg-white/15 transition-all h-full">
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className="text-2xl">{card.emoji}</span>
+                      <div className="min-w-0">
+                        <div className="font-bold text-white text-lg truncate">{card.name}</div>
+                        <div className="text-xs text-slate-400 line-clamp-2">{card.tagline}</div>
+                      </div>
+                      <div className="ml-auto">
+                        <span className="bg-emerald-400 text-slate-900 text-xs font-bold px-2.5 py-1 rounded-full">FREE</span>
+                      </div>
                     </div>
-                    <div className="ml-auto">
-                      <span className="bg-emerald-400 text-slate-900 text-xs font-bold px-2.5 py-1 rounded-full">FREE</span>
+                    <div className="flex items-center gap-1.5 text-xs text-indigo-300 group-hover:text-amber-300 transition-colors">
+                      <span>Start learning now</span>
+                      <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5 text-xs text-indigo-300 group-hover:text-amber-300 transition-colors">
-                    <span>Start learning now</span>
-                    <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
-                  </div>
-                </div>
-              </Link>
-            ))}
-          </motion.div>
+                </Link>
+              ))}
+            </motion.div>
+          )}
         </div>
       </section>
 
