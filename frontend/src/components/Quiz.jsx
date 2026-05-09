@@ -19,6 +19,10 @@ export const Quiz = ({ questions, onComplete, moduleName, previousAttempts = 0, 
   const [answers, setAnswers] = useState([]);
   const [attemptCount, setAttemptCount] = useState(previousAttempts);
 
+  useEffect(() => {
+    setAttemptCount(previousAttempts);
+  }, [previousAttempts]);
+
   // Allow the lesson creator to override the pass threshold (1–100). Default 70.
   const passingScore = (() => {
     const n = Number(passingScoreProp);

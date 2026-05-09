@@ -419,9 +419,6 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
     last_login: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
-    # relationships
-    enrollments: Mapped[List["Enrollment"]] = relationship("Enrollment", back_populates="user", cascade="all, delete-orphan")
-
     def __repr__(self) -> str:
         return f"<User(id={self.id}, username='{self.username}', email='{self.email}')>"
 
@@ -441,32 +438,7 @@ class User(Base):
 
 
 # ---------------------------------------------------------------------------
-# 10. Enrollment
-# ---------------------------------------------------------------------------
-
-class Enrollment(Base):
-    __tablename__ = "enrollments"
-    __table_args__ = (
-        UniqueConstraint("user_id", "plan_id", name="uq_enrollment_user_plan"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    plan_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("pricing_plans.id", ondelete="SET NULL"), nullable=True)
-    payment_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    enrolled_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-
-    # relationships
-    user: Mapped["User"] = relationship("User", back_populates="enrollments")
-    plan: Mapped[Optional["PricingPlan"]] = relationship("PricingPlan", back_populates="enrollments")
-
-    def __repr__(self) -> str:
-        return f"<Enrollment(id={self.id}, user_id={self.user_id}, plan_id={self.plan_id})>"
-
-
-# ---------------------------------------------------------------------------
-# 15. PricingPlan (unchanged)
+# 15. PricingPlan
 # ---------------------------------------------------------------------------
 
 class PricingPlan(Base):
@@ -492,9 +464,6 @@ class PricingPlan(Base):
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
-
-    # relationships
-    enrollments: Mapped[List["Enrollment"]] = relationship("Enrollment", back_populates="plan")
 
     def __repr__(self) -> str:
         return f"<PricingPlan(id={self.id}, slug='{self.slug}', name='{self.name}', price={self.price})>"

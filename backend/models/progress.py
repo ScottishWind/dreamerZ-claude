@@ -129,7 +129,7 @@ class StudentLessonProgressResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class AssessmentAttemptCreate(BaseModel):
-    student_user_id: int = Field(..., gt=0)
+    student_user_id: Optional[int] = Field(None, gt=0)
     course_id: int = Field(..., gt=0)
     assessment_type: str = Field(..., max_length=30)
     assessment_id: int = Field(..., gt=0)

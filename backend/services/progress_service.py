@@ -98,7 +98,7 @@ async def start_course_enrollment(
 
     except Exception as e:
         await sess.rollback()
-        logger.error("Error starting course enrollment: %s", e)
+        logger.error("Error starting course enrollment: %s", e, exc_info=True)
         raise
     finally:
         if close:

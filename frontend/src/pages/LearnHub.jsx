@@ -1,491 +1,321 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Link } from 'react-router-dom';
-import { CourseCard } from '../components/CourseCard';
-import { useProgress } from '../hooks/useProgress';
+import { useNavigate } from 'react-router-dom';
 import { useCurriculum } from '../hooks/useCurriculum';
+import { useLearningProgress } from '../hooks/useLearningProgress';
+import { useProgress } from '../hooks/useProgress';
 import { ProgressDashboard } from '../components/ProgressDashboard';
-import { StreakBadge } from '../components/StreakBadge';
-import { Trophy, Zap, Target, BarChart3, Grid3X3, BookOpen, Mic, ArrowRight, Calendar, Languages, MessageCircle, Brain, Sparkles, Lightbulb, Search, CheckCircle2, Circle, ChevronRight } from 'lucide-react';
-import { Progress } from '../components/ui/progress';
-import { Button } from '../components/ui/button';
+import { BookOpen, Search, ArrowRight, Layers, HelpCircle, Signal, CheckCircle2, Sparkles, GraduationCap, Grid3X3, BarChart3 } from 'lucide-react';
+
+const CATEGORY_META = {
+  'ai-learning': {
+    title: 'AI Learning',
+    description: 'Learn AI tools, prompting, creativity, and safe usage through guided courses.',
+    icon: '🤖',
+    gradient: 'from-indigo-600 to-violet-600',
+    ring: 'ring-indigo-100'
+  },
+  'spoken-writing-english': {
+    title: 'Spoken & Writing English',
+    description: 'Build confidence with English speaking, writing, vocabulary, and roleplay practice.',
+    icon: '🗣️',
+    gradient: 'from-rose-500 to-pink-500',
+    ring: 'ring-rose-100'
+  }
+};
+
+const numericId = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+const getCourseDbId = (course) => numericId(course?.db_id || course?.course_id || course?.id);
+
+const getCourseStats = (course) => {
+  const modules = course.modules || [];
+  const totalModules = modules.length;
+  const totalQuizzes = modules.reduce((count, module) => {
+    if (Array.isArray(module.quiz)) return count + (module.quiz.length > 0 ? 1 : 0);
+    if (module.quiz?.questions?.length) return count + 1;
+    return count;
+  }, 0);
+  const hasAdvanced = modules.some(module => module.level === 'advanced' || module.isAdvanced);
+  const hasIntermediate = modules.some(module => module.level === 'intermediate');
+  const difficulty = course.difficulty || (hasAdvanced ? 'Advanced' : hasIntermediate ? 'Intermediate' : 'Beginner');
+  return { totalModules, totalQuizzes, difficulty };
+};
+
+const CourseCatalogCard = ({ course, index, isEnrolled, isEnrolling, onEnroll }) => {
+  const navigate = useNavigate();
+  const stats = getCourseStats(course);
+
+  const handlePrimaryAction = async () => {
+    if (isEnrolled) {
+      navigate(`/learn/${course.id}`);
+      return;
+    }
+    await onEnroll(course);
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.04 }}
+      className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all flex flex-col min-h-[280px]"
+    >
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl" style={{ backgroundColor: `${course.color || '#10A37F'}18` }}>
+          {course.icon || '📘'}
+        </div>
+        <span className="px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-semibold">
+          {stats.difficulty}
+        </span>
+      </div>
+
+      <h3 className="text-lg font-bold text-slate-900 mb-2 line-clamp-2">{course.name}</h3>
+      <p className="text-sm text-slate-500 line-clamp-2 mb-5 flex-grow">{course.tagline || course.description || 'A guided learning course with lessons and quizzes.'}</p>
+
+      <div className="grid grid-cols-3 gap-2 mb-5">
+        <div className="rounded-xl bg-slate-50 p-3 text-center">
+          <Layers className="w-4 h-4 mx-auto text-primary mb-1" />
+          <div className="text-sm font-bold text-slate-900">{stats.totalModules}</div>
+          <div className="text-[11px] text-slate-500">Modules</div>
+        </div>
+        <div className="rounded-xl bg-slate-50 p-3 text-center">
+          <HelpCircle className="w-4 h-4 mx-auto text-violet-600 mb-1" />
+          <div className="text-sm font-bold text-slate-900">{stats.totalQuizzes}</div>
+          <div className="text-[11px] text-slate-500">Quizzes</div>
+        </div>
+        <div className="rounded-xl bg-slate-50 p-3 text-center">
+          <Signal className="w-4 h-4 mx-auto text-emerald-600 mb-1" />
+          <div className="text-sm font-bold text-slate-900 truncate">{stats.difficulty}</div>
+          <div className="text-[11px] text-slate-500">Level</div>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={handlePrimaryAction}
+        disabled={isEnrolling}
+        className={`w-full rounded-xl px-4 py-3 font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed ${
+          isEnrolled
+            ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+            : 'bg-primary text-white hover:bg-primary/90'
+        }`}
+      >
+        {isEnrolled ? <CheckCircle2 className="w-4 h-4" /> : <BookOpen className="w-4 h-4" />}
+        {isEnrolling ? 'Enrolling...' : isEnrolled ? 'Open Course' : 'Enroll'}
+      </button>
+    </motion.div>
+  );
+};
 
 export const LearnHub = () => {
+  const { tools: apiTools, isLoading, error } = useCurriculum();
+  const { courseEnrollments, loadCourseEnrollments, startCourse } = useLearningProgress();
   const {
     progress,
     getToolCompletion,
     getOverallCompletion,
     totalXP,
-    resetProgress,
-    getStreakInfo,
-    isModuleCompleted
+    getStreakInfo
   } = useProgress();
-  const { tools: apiTools } = useCurriculum();
-  const streakInfo = getStreakInfo();
-  const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'progress'
-  const [activeCategory, setActiveCategory] = useState('all'); // 'all', 'ai-learning', 'spoken-writing-english'
+  const [viewMode, setViewMode] = useState('catalog'); // 'catalog' or 'progress'
+  const [selectedCategory, setSelectedCategory] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [enrollingCourseId, setEnrollingCourseId] = useState(null);
+  const [enrollError, setEnrollError] = useState(null);
+  const streakInfo = getStreakInfo();
 
-  // Get spoken-english tools from API (they aren't in the static toolsData)
-  const spokenEnglishTools = apiTools.filter(t => t.category_id === 'spoken-writing-english');
-  const spokenEnglishTool = spokenEnglishTools[0];
-  const spokenModuleCount = spokenEnglishTool?.modules?.length || 0;
-  const spokenCompletion = getToolCompletion('spoken-english-30day', spokenModuleCount);
-  const spokenCompletedCount = Object.values(progress.completedModules?.['spoken-english-30day'] || {}).filter(m => m.completed).length;
+  useEffect(() => {
+    loadCourseEnrollments();
+  }, [loadCourseEnrollments]);
 
-  // AI Learning tools from API (excludes spoken-english category)
-  const aiLearningTools = apiTools.filter(t => t.category_id !== 'spoken-writing-english');
-  const aiToolCount = aiLearningTools.length;
+  const enrolledCourseIds = useMemo(() => {
+    return new Set(courseEnrollments.map(enrollment => enrollment.course_id));
+  }, [courseEnrollments]);
 
-  // AI Learning aggregate progress across all AI tools (from API, not static)
-  const aiTotalModules = aiLearningTools.reduce((sum, t) => sum + (t.modules?.length || 0), 0);
-  const aiCompletedModules = aiLearningTools.reduce((sum, t) => {
-    return sum + Object.values(progress.completedModules?.[t.id] || {}).filter(m => m.completed).length;
-  }, 0);
-  const aiCompletion = aiTotalModules > 0 ? Math.round((aiCompletedModules / aiTotalModules) * 100) : 0;
+  const categories = useMemo(() => {
+    const grouped = new Map();
+    apiTools.forEach(course => {
+      const categoryId = course.category_id || 'uncategorized';
+      grouped.set(categoryId, [...(grouped.get(categoryId) || []), course]);
+    });
 
-  // Include spoken-english module count in overall completion
-  const overallCompletion = getOverallCompletion(spokenModuleCount);
+    return Array.from(grouped.entries()).map(([id, courses], index) => {
+      const meta = CATEGORY_META[id] || {
+        title: id.split('-').map(word => word[0]?.toUpperCase() + word.slice(1)).join(' '),
+        description: 'Explore guided learning courses in this category.',
+        icon: '📚',
+        gradient: index % 2 === 0 ? 'from-cyan-500 to-blue-500' : 'from-amber-500 to-orange-500',
+        ring: index % 2 === 0 ? 'ring-cyan-100' : 'ring-amber-100'
+      };
+      const totalModules = courses.reduce((sum, course) => sum + (course.modules?.length || 0), 0);
+      return { id, courses, totalCourses: courses.length, totalModules, ...meta };
+    });
+  }, [apiTools]);
 
-  // Search filtering for tools grid — use API data directly (no static duplication)
-  const query = searchQuery.toLowerCase().trim();
+  const enrolledTools = useMemo(() => {
+    return apiTools.filter(tool => {
+      const courseDbId = getCourseDbId(tool);
+      return courseDbId ? enrolledCourseIds.has(courseDbId) : false;
+    });
+  }, [apiTools, enrolledCourseIds]);
 
-  const filteredToolsData = useMemo(() => {
-    let tools = activeCategory === 'all'
-      ? aiLearningTools
-      : activeCategory === 'ai-learning'
-        ? aiLearningTools
-        : [];
+  const overallCompletion = useMemo(() => {
+    if (enrolledTools.length === 0) return 0;
+    const totalModules = enrolledTools.reduce((sum, t) => sum + (t.modules?.length || 0), 0);
+    const completedModules = enrolledTools.reduce((sum, t) => {
+      return sum + Object.values(progress.completedModules?.[t.id] || {}).filter(m => m.completed).length;
+    }, 0);
+    return totalModules > 0 ? Math.round((completedModules / totalModules) * 100) : 0;
+  }, [enrolledTools, progress]);
 
-    if (query) {
-      tools = tools.filter(tool =>
-        tool.name.toLowerCase().includes(query) ||
-        (tool.tagline || '').toLowerCase().includes(query) ||
-        (tool.modules || []).some(m =>
-          m.title.toLowerCase().includes(query) ||
-          (m.description || '').toLowerCase().includes(query)
-        )
-      );
+  const selectedCategoryData = categories.find(category => category.id === selectedCategory);
+  const query = searchQuery.trim().toLowerCase();
+
+  const visibleCourses = useMemo(() => {
+    const courses = selectedCategoryData?.courses || [];
+    if (!query) return courses;
+    return courses.filter(course =>
+      course.name.toLowerCase().includes(query) ||
+      (course.tagline || '').toLowerCase().includes(query) ||
+      (course.description || '').toLowerCase().includes(query)
+    );
+  }, [selectedCategoryData, query]);
+
+  const handleEnroll = async (course) => {
+    const courseDbId = getCourseDbId(course);
+    if (!courseDbId) {
+      setEnrollError('Course cannot be enrolled because its numeric ID is missing.');
+      return;
     }
 
-    return tools;
-  }, [activeCategory, query, aiLearningTools]);
+    setEnrollError(null);
+    setEnrollingCourseId(courseDbId);
+    try {
+      await startCourse(courseDbId);
+      await loadCourseEnrollments();
+    } catch (err) {
+      setEnrollError(err.message || 'Failed to enroll in course');
+    } finally {
+      setEnrollingCourseId(null);
+    }
+  };
 
-  // Search filtering for curriculum modules (from API data)
-  const matchingModules = useMemo(() => {
-    if (!query) return [];
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 pt-24 pb-16 flex items-center justify-center">
+        <div className="bg-white border border-slate-200 rounded-2xl p-8 text-slate-600 shadow-sm">Loading learning catalog...</div>
+      </div>
+    );
+  }
 
-    const results = [];
-    apiTools.forEach(tool => {
-      (tool.modules || []).forEach(mod => {
-        if (
-          mod.title.toLowerCase().includes(query) ||
-          (mod.description || '').toLowerCase().includes(query)
-        ) {
-          results.push({ ...mod, toolId: tool.id, toolName: tool.name, toolIcon: tool.icon, toolColor: tool.color });
-        }
-      });
-    });
-    return results;
-  }, [query, apiTools]);
+  if (error) {
+    return (
+      <div className="min-h-screen bg-slate-50 pt-24 pb-16 flex items-center justify-center">
+        <div className="bg-rose-50 border border-rose-200 rounded-2xl p-8 text-rose-700 shadow-sm">{error}</div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 pt-24 pb-16">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Header */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-12"
-        >
-          <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-8">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-10">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-sm font-semibold mb-4">
+            <GraduationCap className="w-4 h-4" />
+            Learn Home
+          </div>
+          <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
             <div>
-              <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-3">
-                Learning Hub
-              </h1>
-              <p className="text-slate-600 max-w-xl text-lg">
-                Choose an AI tool to start your learning journey. Complete modules and quizzes to earn XP.
+              <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-3">All Learning</h1>
+              <p className="text-slate-600 max-w-2xl text-lg">
+                Choose a learning category first. Then enroll in a course to unlock the full course player and begin progress tracking.
               </p>
             </div>
-
-            {/* Stats Card */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 0.2 }}
-              className="card-professional flex-shrink-0 w-full lg:w-auto"
-            >
-              <div className="flex items-center gap-6 flex-wrap">
-                {/* Streak Badge */}
-                <StreakBadge
-                  streak={streakInfo.currentStreak}
-                  isActiveToday={streakInfo.isActiveToday}
-                  streakAtRisk={streakInfo.streakAtRisk}
-                  compact={true}
-                />
-                <div className="w-px h-10 bg-slate-200 hidden sm:block" />
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center">
-                    <Trophy className="w-5 h-5 text-primary" />
-                  </div>
-                  <div>
-                    <div className="text-xl font-bold text-slate-900">{overallCompletion}%</div>
-                    <div className="text-xs text-slate-500 font-medium">Complete</div>
-                  </div>
-                </div>
-                <div className="w-px h-10 bg-slate-200 hidden sm:block" />
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center">
-                    <Zap className="w-5 h-5 text-emerald-600" />
-                  </div>
-                  <div>
-                    <div className="text-xl font-bold text-slate-900">{totalXP}</div>
-                    <div className="text-xs text-slate-500 font-medium">XP Earned</div>
-                  </div>
-                </div>
-              </div>
-              <div className="mt-4">
-                <Progress value={overallCompletion} className="h-2" />
-              </div>
-            </motion.div>
-          </div>
-
-          {/* Search Bar */}
-          <div className="relative mt-6">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-            <input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search tools and modules..."
-              className="w-full px-4 py-3 pl-12 rounded-xl border border-slate-200 bg-white text-slate-900 outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-              data-testid="learnhub-search"
-            />
-          </div>
-
-          {/* View Toggle + Category Filter */}
-          <div className="flex flex-wrap items-center gap-2 mt-4">
-            <Button
-              variant={viewMode === 'grid' ? 'default' : 'ghost'}
-              onClick={() => setViewMode('grid')}
-              className={`rounded-xl ${viewMode === 'grid' ? 'bg-primary text-white' : 'text-slate-600'}`}
-              data-testid="view-grid-btn"
-            >
-              <Grid3X3 className="w-4 h-4 mr-2" />
-              Tools
-            </Button>
-            <Button
-              variant={viewMode === 'progress' ? 'default' : 'ghost'}
-              onClick={() => setViewMode('progress')}
-              className={`rounded-xl ${viewMode === 'progress' ? 'bg-primary text-white' : 'text-slate-600'}`}
-              data-testid="view-progress-btn"
-            >
-              <BarChart3 className="w-4 h-4 mr-2" />
-              My Progress
-            </Button>
-
-            {viewMode === 'grid' && (
-              <>
-                <div className="w-px h-8 bg-slate-200 mx-1 hidden sm:block" />
-                <Button
-                  variant={activeCategory === 'all' ? 'default' : 'ghost'}
-                  onClick={() => setActiveCategory('all')}
-                  className={`rounded-xl text-sm ${activeCategory === 'all' ? 'bg-slate-800 text-white' : 'text-slate-600'}`}
-                >
-                  All
-                </Button>
-                <Button
-                  variant={activeCategory === 'ai-learning' ? 'default' : 'ghost'}
-                  onClick={() => setActiveCategory('ai-learning')}
-                  className={`rounded-xl text-sm ${activeCategory === 'ai-learning' ? 'bg-indigo-600 text-white' : 'text-slate-600'}`}
-                >
-                  <Brain className="w-3.5 h-3.5 mr-1.5" />
-                  AI Learning
-                </Button>
-                <Button
-                  variant={activeCategory === 'spoken-writing-english' ? 'default' : 'ghost'}
-                  onClick={() => setActiveCategory('spoken-writing-english')}
-                  className={`rounded-xl text-sm ${activeCategory === 'spoken-writing-english' ? 'bg-rose-500 text-white' : 'text-slate-600'}`}
-                >
-                  <Mic className="w-3.5 h-3.5 mr-1.5" />
-                  Spoken English
-                </Button>
-              </>
+            {viewMode === 'catalog' && selectedCategory && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedCategory(null);
+                  setSearchQuery('');
+                }}
+                className="px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:text-primary hover:border-primary/30 transition-colors"
+              >
+                Back to Categories
+              </button>
+            )}
+            {viewMode === 'progress' && (
+              <button
+                type="button"
+                onClick={() => setViewMode('catalog')}
+                className="px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:text-primary hover:border-primary/30 transition-colors"
+              >
+                Back to Catalog
+              </button>
             )}
           </div>
         </motion.div>
 
+        {/* Colorful Progress Tracker Banner */}
+        {viewMode === 'catalog' && (
+          <motion.button
+            type="button"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            onClick={() => setViewMode('progress')}
+            className="w-full bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 rounded-3xl p-6 lg:p-8 shadow-lg hover:shadow-xl hover:-translate-y-1 transition-all text-left relative overflow-hidden group mb-8"
+          >
+            <div className="absolute -right-16 -top-16 w-48 h-48 rounded-full bg-white/10 group-hover:bg-white/15 transition-colors" />
+            <div className="absolute -right-8 -bottom-8 w-32 h-32 rounded-full bg-white/10 group-hover:bg-white/15 transition-colors" />
+            <div className="relative z-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+              <div className="flex items-start gap-4">
+                <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center text-3xl flex-shrink-0 backdrop-blur">
+                  📊
+                </div>
+                <div className="flex-grow">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="bg-white/20 text-white text-xs font-bold px-2 py-0.5 rounded-full backdrop-blur">
+                      {enrolledTools.length} ENROLLED
+                    </span>
+                    <span className="bg-white/20 text-white text-xs font-semibold px-2 py-0.5 rounded-full backdrop-blur">
+                      {overallCompletion}% COMPLETE
+                    </span>
+                  </div>
+                  <h2 className="text-2xl font-bold text-white mb-1">Your Learning Progress</h2>
+                  <p className="text-white/90 text-sm max-w-xl">
+                    Track your progress across all enrolled courses. See completion rates, XP earned, and your learning streak.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 flex-shrink-0">
+                <div className="bg-white/15 backdrop-blur rounded-2xl px-4 py-3 text-center min-w-[80px]">
+                  <div className="text-2xl font-bold text-white">{overallCompletion}%</div>
+                  <div className="text-xs text-white/80">Complete</div>
+                </div>
+                <div className="bg-white/15 backdrop-blur rounded-2xl px-4 py-3 text-center min-w-[80px]">
+                  <div className="text-2xl font-bold text-white">{totalXP}</div>
+                  <div className="text-xs text-white/80">XP</div>
+                </div>
+                <div className="bg-white/15 backdrop-blur rounded-2xl px-4 py-3 text-center min-w-[80px]">
+                  <div className="text-2xl font-bold text-white">{streakInfo.currentStreak}</div>
+                  <div className="text-xs text-white/80">Day Streak</div>
+                </div>
+                <div className="bg-white text-emerald-600 rounded-xl px-5 py-3 font-semibold group-hover:bg-emerald-50 transition-colors flex items-center gap-2">
+                  <BarChart3 className="w-4 h-4" />
+                  View Details
+                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </div>
+              </div>
+            </div>
+          </motion.button>
+        )}
+
         <AnimatePresence mode="wait">
-          {viewMode === 'grid' ? (
-            <motion.div
-              key={`grid-${activeCategory}`}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-            >
-              {/* AI Learning Featured Banner (show on 'all' or 'ai-learning') */}
-              {(activeCategory === 'all' || activeCategory === 'ai-learning') && !query && (
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="mb-6"
-                >
-                  <Link to="/learn/chatgpt" className="block">
-                    <div className="bg-gradient-to-r from-indigo-600 to-violet-600 rounded-2xl p-6 lg:p-8 hover:shadow-xl hover:shadow-indigo-200/50 transition-all group">
-                      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
-                        <div className="flex items-start gap-4">
-                          <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0">
-                            🤖
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="bg-white/20 text-white text-xs font-bold px-2 py-0.5 rounded-full">{aiToolCount} TOOLS</span>
-                              <span className="bg-white/20 text-white text-xs font-semibold px-2 py-0.5 rounded-full">{aiTotalModules} Modules</span>
-                              <span className="bg-emerald-400 text-slate-900 text-xs font-bold px-2 py-0.5 rounded-full">FREE</span>
-                            </div>
-                            <h3 className="text-xl font-bold text-white mb-1">AI Learning — ChatGPT, Claude, Gemini & More</h3>
-                            <p className="text-indigo-100 text-sm max-w-xl">
-                              Master prompt engineering, creative AI use, and ethical awareness. Hands-on activities with quizzes for every module.
-                            </p>
-                            {aiCompletion > 0 && (
-                              <div className="mt-2 max-w-xs">
-                                <div className="h-2 bg-white/20 rounded-full overflow-hidden">
-                                  <div className="h-full bg-white rounded-full transition-all" style={{ width: `${aiCompletion}%` }} />
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3 flex-shrink-0">
-                          <div className="hidden sm:flex gap-2">
-                            {aiCompletion > 0 ? (
-                              <>
-                                <div className="bg-white/15 backdrop-blur rounded-xl px-3 py-2 text-center min-w-[70px]">
-                                  <div className="text-lg font-bold text-white">{aiCompletion}%</div>
-                                  <div className="text-xs text-indigo-100">Complete</div>
-                                </div>
-                                <div className="bg-white/15 backdrop-blur rounded-xl px-3 py-2 text-center min-w-[70px]">
-                                  <div className="text-lg font-bold text-white">{aiCompletedModules}/{aiTotalModules}</div>
-                                  <div className="text-xs text-indigo-100">Modules</div>
-                                </div>
-                              </>
-                            ) : (
-                              <>
-                                <div className="bg-white/15 backdrop-blur rounded-xl px-3 py-2 text-center">
-                                  <Brain className="w-4 h-4 text-white mx-auto mb-1" />
-                                  <div className="text-xs text-indigo-100">{aiToolCount} AI Tools</div>
-                                </div>
-                                <div className="bg-white/15 backdrop-blur rounded-xl px-3 py-2 text-center">
-                                  <Sparkles className="w-4 h-4 text-white mx-auto mb-1" />
-                                  <div className="text-xs text-indigo-100">Prompts</div>
-                                </div>
-                                <div className="bg-white/15 backdrop-blur rounded-xl px-3 py-2 text-center">
-                                  <Lightbulb className="w-4 h-4 text-white mx-auto mb-1" />
-                                  <div className="text-xs text-indigo-100">Quizzes</div>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                          <div className="bg-white text-indigo-600 rounded-xl px-5 py-3 font-semibold group-hover:bg-indigo-50 transition-colors flex items-center gap-2">
-                            {aiCompletion > 0 ? 'Continue' : 'Start Now'}
-                            <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </Link>
-                </motion.div>
-              )}
-
-              {/* Spoken English Featured Banner (show on 'all' or 'spoken-writing-english') */}
-              {(activeCategory === 'all' || activeCategory === 'spoken-writing-english') && !query && (
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="mb-8"
-                >
-                  <Link to="/learn/spoken-english-30day" className="block">
-                    <div className="bg-gradient-to-r from-rose-500 to-pink-500 rounded-2xl p-6 lg:p-8 hover:shadow-xl hover:shadow-rose-200/50 transition-all group">
-                      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
-                        <div className="flex items-start gap-4">
-                          <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0">
-                            🗣️
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="bg-white/20 text-white text-xs font-bold px-2 py-0.5 rounded-full">NEW</span>
-                              <span className="bg-white/20 text-white text-xs font-semibold px-2 py-0.5 rounded-full">30 Days</span>
-                              <span className="bg-emerald-400 text-slate-900 text-xs font-bold px-2 py-0.5 rounded-full">FREE</span>
-                            </div>
-                            <h3 className="text-xl font-bold text-white mb-1">Spoken English for Bengali Teens</h3>
-                            <p className="text-rose-100 text-sm max-w-xl">
-                              Daily lessons with dialogues, AI roleplay chat, vocabulary with Bengali meanings, and weekly tests. From greetings to confident conversations.
-                            </p>
-                            {spokenCompletion > 0 && (
-                              <div className="mt-2 max-w-xs">
-                                <div className="h-2 bg-white/20 rounded-full overflow-hidden">
-                                  <div className="h-full bg-white rounded-full transition-all" style={{ width: `${spokenCompletion}%` }} />
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3 flex-shrink-0">
-                          <div className="hidden sm:flex gap-2">
-                            {spokenCompletion > 0 ? (
-                              <>
-                                <div className="bg-white/15 backdrop-blur rounded-xl px-3 py-2 text-center min-w-[70px]">
-                                  <div className="text-lg font-bold text-white">{spokenCompletion}%</div>
-                                  <div className="text-xs text-rose-100">Complete</div>
-                                </div>
-                                <div className="bg-white/15 backdrop-blur rounded-xl px-3 py-2 text-center min-w-[70px]">
-                                  <div className="text-lg font-bold text-white">{spokenCompletedCount}/{spokenModuleCount}</div>
-                                  <div className="text-xs text-rose-100">Lessons</div>
-                                </div>
-                              </>
-                            ) : (
-                              <>
-                                <div className="bg-white/15 backdrop-blur rounded-xl px-3 py-2 text-center">
-                                  <Calendar className="w-4 h-4 text-white mx-auto mb-1" />
-                                  <div className="text-xs text-rose-100">30 Lessons</div>
-                                </div>
-                                <div className="bg-white/15 backdrop-blur rounded-xl px-3 py-2 text-center">
-                                  <Mic className="w-4 h-4 text-white mx-auto mb-1" />
-                                  <div className="text-xs text-rose-100">AI Chat</div>
-                                </div>
-                                <div className="bg-white/15 backdrop-blur rounded-xl px-3 py-2 text-center">
-                                  <Languages className="w-4 h-4 text-white mx-auto mb-1" />
-                                  <div className="text-xs text-rose-100">Bengali</div>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                          <div className="bg-white text-rose-600 rounded-xl px-5 py-3 font-semibold group-hover:bg-rose-50 transition-colors flex items-center gap-2">
-                            {spokenCompletion > 0 ? 'Continue' : 'Start Now'}
-                            <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </Link>
-                </motion.div>
-              )}
-
-              {/* AI Tools Grid */}
-              {(activeCategory === 'all' || activeCategory === 'ai-learning') && filteredToolsData.length > 0 && (
-                <>
-                  {activeCategory === 'all' && (
-                    <h3 className="text-lg font-semibold text-slate-700 mb-4 flex items-center gap-2">
-                      <Brain className="w-5 h-5 text-indigo-600" />
-                      AI Learning Tools
-                    </h3>
-                  )}
-                  <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6" data-testid="tools-grid">
-                    {filteredToolsData.map((tool, index) => (
-                      <CourseCard
-                        key={tool.id}
-                        course={tool}
-                        index={index}
-                        completion={getToolCompletion(tool.id)}
-                        linkPrefix="/learn"
-                      />
-                    ))}
-                  </div>
-                </>
-              )}
-
-              {/* Matching Modules from Curriculum (shown when searching) */}
-              {query && matchingModules.length > 0 && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="mt-8"
-                >
-                  <h3 className="text-lg font-semibold text-slate-700 mb-4 flex items-center gap-2">
-                    <BookOpen className="w-5 h-5 text-primary" />
-                    Matching Modules ({matchingModules.length})
-                  </h3>
-                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="divide-y divide-slate-100">
-                      {matchingModules.map((module) => {
-                        const completed = isModuleCompleted(module.toolId, module.id);
-                        return (
-                          <Link
-                            key={`${module.toolId}-${module.id}`}
-                            to={`/learn/${module.toolId}`}
-                            className={`flex items-center gap-4 p-4 transition-all hover:bg-slate-50 ${
-                              completed ? 'bg-emerald-50/50' : ''
-                            }`}
-                          >
-                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                              completed ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-400'
-                            }`}>
-                              {completed ? (
-                                <CheckCircle2 className="w-5 h-5" />
-                              ) : (
-                                <Circle className="w-5 h-5" />
-                              )}
-                            </div>
-
-                            <div className="flex-grow min-w-0">
-                              <div className="font-medium text-slate-900 text-sm truncate flex items-center gap-2">
-                                {module.title}
-                                {module.isAdvanced && (
-                                  <Sparkles className="w-3 h-3 text-amber-500" />
-                                )}
-                              </div>
-                              <div className="text-xs text-slate-500 truncate">
-                                {module.toolName} — {module.description}
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-2 text-sm text-slate-400">
-                              <span className="hidden sm:inline">{Array.isArray(module.quiz) ? module.quiz.length : (module.quiz?.questions?.length || 0)} questions</span>
-                              <ChevronRight className="w-4 h-4" />
-                            </div>
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-
-              {/* No results */}
-              {query && filteredToolsData.length === 0 && matchingModules.length === 0 && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="text-center py-20"
-                >
-                  <Search className="w-16 h-16 mx-auto text-slate-300 mb-4" />
-                  <h3 className="text-xl font-semibold text-slate-900 mb-2">No results found</h3>
-                  <p className="text-slate-500">Try a different search term</p>
-                </motion.div>
-              )}
-
-              {/* Pro Tip */}
-              {(activeCategory === 'all' || activeCategory === 'ai-learning') && !query && (
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.5 }}
-                  className="mt-12 bg-gradient-dark rounded-2xl p-6 lg:p-8"
-                >
-                  <div className="flex items-start gap-5">
-                    <div className="w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center flex-shrink-0">
-                      <Target className="w-6 h-6 text-white" />
-                    </div>
-                    <div>
-                      <h3 className="text-white font-semibold text-lg mb-2">Recommended: Start with ChatGPT</h3>
-                      <p className="text-slate-300 leading-relaxed">
-                        New to AI? The ChatGPT journey covers all fundamentals — from understanding LLMs to writing effective prompts. These skills transfer to every other AI tool.
-                      </p>
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-            </motion.div>
-          ) : (
+          {viewMode === 'progress' ? (
             <motion.div
               key="progress"
               initial={{ opacity: 0, y: 20 }}
@@ -496,14 +326,123 @@ export const LearnHub = () => {
                 progress={progress}
                 getToolCompletion={getToolCompletion}
                 getOverallCompletion={getOverallCompletion}
-                resetProgress={resetProgress}
+                resetProgress={() => {}}
                 totalXP={totalXP}
                 streakInfo={streakInfo}
-                apiTools={apiTools}
+                apiTools={enrolledTools}
               />
+            </motion.div>
+          ) : !selectedCategory ? (
+            <motion.div
+              key="categories"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="grid sm:grid-cols-2 xl:grid-cols-3 gap-6"
+            >
+              {categories.map((category, index) => (
+                <motion.button
+                  key={category.id}
+                  type="button"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.05 }}
+                  onClick={() => setSelectedCategory(category.id)}
+                  className={`text-left rounded-3xl p-6 bg-gradient-to-br ${category.gradient} text-white shadow-lg hover:shadow-2xl hover:-translate-y-1 transition-all overflow-hidden relative`}
+                >
+                  <div className="absolute -right-8 -top-8 w-32 h-32 rounded-full bg-white/10" />
+                  <div className="relative z-10">
+                    <div className="w-16 h-16 rounded-2xl bg-white/20 flex items-center justify-center text-3xl mb-6">
+                      {category.icon}
+                    </div>
+                    <h2 className="text-2xl font-bold mb-2">{category.title}</h2>
+                    <p className="text-white/85 text-sm leading-relaxed mb-6 min-h-[44px]">{category.description}</p>
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="bg-white/20 rounded-2xl px-4 py-3 backdrop-blur">
+                        <div className="text-2xl font-bold">{category.totalCourses}</div>
+                        <div className="text-xs text-white/80">Courses</div>
+                      </div>
+                      <div className="bg-white/20 rounded-2xl px-4 py-3 backdrop-blur">
+                        <div className="text-2xl font-bold">{category.totalModules}</div>
+                        <div className="text-xs text-white/80">Modules</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between font-semibold">
+                      <span>View Courses</span>
+                      <ArrowRight className="w-5 h-5" />
+                    </div>
+                  </div>
+                </motion.button>
+              ))}
+            </motion.div>
+          ) : (
+            <motion.div
+              key="courses"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+            >
+              <div className="bg-white border border-slate-200 rounded-3xl p-6 mb-8 shadow-sm">
+                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
+                  <div className="flex items-start gap-4">
+                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-3xl ring-8 ${selectedCategoryData?.ring || 'ring-slate-100'} bg-white`}>
+                      {selectedCategoryData?.icon}
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-bold text-slate-900">{selectedCategoryData?.title}</h2>
+                      <p className="text-slate-500 mt-1">{selectedCategoryData?.totalCourses || 0} courses available. Enroll to begin tracking progress.</p>
+                    </div>
+                  </div>
+                  <div className="relative w-full lg:w-80">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      value={searchQuery}
+                      onChange={(event) => setSearchQuery(event.target.value)}
+                      placeholder="Search courses..."
+                      className="w-full pl-11 pr-4 py-3 rounded-xl border border-slate-200 bg-slate-50 outline-none focus:bg-white focus:border-primary focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {enrollError && (
+                <div className="mb-6 bg-rose-50 border border-rose-200 rounded-2xl p-4 text-rose-700 text-sm">
+                  {enrollError}
+                </div>
+              )}
+
+              {visibleCourses.length > 0 ? (
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5" data-testid="category-course-grid">
+                  {visibleCourses.map((course, index) => {
+                    const courseDbId = getCourseDbId(course);
+                    const isEnrolled = courseDbId ? enrolledCourseIds.has(courseDbId) : false;
+                    return (
+                      <CourseCatalogCard
+                        key={course.id}
+                        course={course}
+                        index={index}
+                        isEnrolled={isEnrolled}
+                        isEnrolling={courseDbId === enrollingCourseId}
+                        onEnroll={handleEnroll}
+                      />
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-center py-20 bg-white border border-slate-200 rounded-3xl">
+                  <Grid3X3 className="w-12 h-12 mx-auto text-slate-300 mb-4" />
+                  <h3 className="text-xl font-semibold text-slate-900 mb-2">No courses found</h3>
+                  <p className="text-slate-500">Try a different search term.</p>
+                </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
+
+        <div className="mt-10 text-center text-sm text-slate-500">
+          Already enrolled? Open your course from its card.
+          <Sparkles className="inline w-4 h-4 ml-2 text-amber-500" />
+        </div>
       </div>
     </div>
   );

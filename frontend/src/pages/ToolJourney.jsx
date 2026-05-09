@@ -10,6 +10,11 @@ import { RoleplayChat } from '../components/RoleplayChat';
 
 const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
 
+const numericId = (value) => {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : null;
+};
+
 // AI tools that get the Prompt Lab tab
 const AI_TOOL_IDS = ['chatgpt', 'claude', 'gemini', 'canva', 'syllaby'];
 
@@ -20,6 +25,8 @@ export const ToolJourney = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('modules');
+  const [isEnrolled, setIsEnrolled] = useState(false);
+  const [isEnrolling, setIsEnrolling] = useState(false);
   const {
     isModuleCompleted,
     isModuleUnlocked,
@@ -31,6 +38,7 @@ export const ToolJourney = () => {
   const { startCourse, loadCourseEnrollment } = useLearningProgress();
   const isAITool = AI_TOOL_IDS.includes(toolId);
   const isEnglish = toolId === 'spoken-english-30day';
+  const courseDbId = numericId(tool?.db_id || tool?.course_id || tool?.id);
 
   // Build available tabs based on tool type
   const tabs = [
@@ -99,18 +107,35 @@ export const ToolJourney = () => {
     }
   }, [isLoading, tool, navigate]);
 
-  // Start course enrollment when tool is loaded
+  // Check enrollment status when tool is loaded
   useEffect(() => {
-    if (tool && tool.id) {
-      // Try to load existing enrollment first
-      loadCourseEnrollment(tool.id).catch(() => {
-        // If no enrollment exists, start a new one
-        startCourse(tool.id).catch((err) => {
-          console.error('Failed to start course enrollment:', err);
-        });
-      });
+    const checkEnrollment = async () => {
+      if (courseDbId) {
+        try {
+          await loadCourseEnrollment(courseDbId);
+          setIsEnrolled(true);
+        } catch (err) {
+          // User is not enrolled
+          setIsEnrolled(false);
+        }
+      }
+    };
+    checkEnrollment();
+  }, [courseDbId, loadCourseEnrollment]);
+
+  const handleEnroll = async () => {
+    if (!courseDbId) return;
+    setIsEnrolling(true);
+    setError(null);
+    try {
+      await startCourse(courseDbId);
+      setIsEnrolled(true);
+    } catch (err) {
+      setError(err.message || 'Failed to enroll in course');
+    } finally {
+      setIsEnrolling(false);
     }
-  }, [tool, startCourse, loadCourseEnrollment]);
+  };
 
   if (isLoading) {
     return (
@@ -133,6 +158,45 @@ export const ToolJourney = () => {
   }
 
   if (!tool) return null;
+
+  // Show enrollment UI if user is not enrolled
+  if (!isEnrolled) {
+    return (
+      <div className="min-h-screen bg-slate-50 pt-20 pb-16">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+          <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center">
+            <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mx-auto mb-6">
+              <BookOpen className="w-8 h-8 text-primary" />
+            </div>
+            <h1 className="text-2xl font-bold text-slate-900 mb-3">{tool.name}</h1>
+            <p className="text-slate-600 mb-8">
+              You need to enroll in this course before you can start learning.
+            </p>
+            {error && (
+              <div className="mb-6 p-4 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-sm">
+                {error}
+              </div>
+            )}
+            <button
+              onClick={handleEnroll}
+              disabled={isEnrolling}
+              className="px-8 py-3 bg-primary text-white rounded-xl font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isEnrolling ? 'Enrolling...' : 'Enroll in Course'}
+            </button>
+            <div className="mt-6">
+              <Link
+                to="/learn"
+                className="text-sm text-slate-500 hover:text-primary transition-colors"
+              >
+                Back to Learn Hub
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 pt-20 pb-16">
