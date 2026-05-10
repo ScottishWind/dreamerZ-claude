@@ -517,9 +517,9 @@ class StudentCourseEnrollment(Base):
     student_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     course_id: Mapped[int] = mapped_column(Integer, ForeignKey("courses.id", ondelete="CASCADE"), nullable=False)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="not_started")
-    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    last_accessed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_accessed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     current_module_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("modules.id", ondelete="SET NULL"), nullable=True)
     current_lesson_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("lessons.id", ondelete="SET NULL"), nullable=True)
     completion_percent: Mapped[float] = mapped_column(Numeric(5, 2), default=0)
@@ -529,8 +529,8 @@ class StudentCourseEnrollment(Base):
     average_assignment_score: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), nullable=True)
     total_time_spent_seconds: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # relationships
     student: Mapped["User"] = relationship("User", foreign_keys=[student_user_id])
@@ -581,9 +581,9 @@ class StudentLessonProgress(Base):
     module_id: Mapped[int] = mapped_column(Integer, ForeignKey("modules.id", ondelete="CASCADE"), nullable=False)
     lesson_id: Mapped[int] = mapped_column(Integer, ForeignKey("lessons.id", ondelete="CASCADE"), nullable=False)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="not_started")
-    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    last_accessed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_accessed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     time_spent_seconds: Mapped[int] = mapped_column(Integer, default=0)
     visit_count: Mapped[int] = mapped_column(Integer, default=0)
     completion_percent: Mapped[float] = mapped_column(Numeric(5, 2), default=0)
@@ -591,8 +591,8 @@ class StudentLessonProgress(Base):
     best_assignment_submission_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     best_score: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), nullable=True)
     mastery_level: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # relationships
     student: Mapped["User"] = relationship("User", foreign_keys=[student_user_id])
@@ -646,9 +646,9 @@ class AssessmentAttempt(Base):
     assessment_id: Mapped[int] = mapped_column(Integer, nullable=False)
     attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="started")
-    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    graded_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    graded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     time_spent_seconds: Mapped[int] = mapped_column(Integer, default=0)
     raw_score: Mapped[Optional[float]] = mapped_column(Numeric(8, 2), nullable=True)
     max_score: Mapped[Optional[float]] = mapped_column(Numeric(8, 2), nullable=True)
@@ -657,8 +657,8 @@ class AssessmentAttempt(Base):
     grader_type: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     graded_by_user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     feedback_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # relationships
     student: Mapped["User"] = relationship("User", foreign_keys=[student_user_id])
@@ -717,7 +717,7 @@ class AssessmentAttemptAnswer(Base):
     score_awarded: Mapped[Optional[float]] = mapped_column(Numeric(8, 2), nullable=True)
     max_score: Mapped[Optional[float]] = mapped_column(Numeric(8, 2), nullable=True)
     feedback: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     # relationships
     attempt: Mapped["AssessmentAttempt"] = relationship("AssessmentAttempt")
@@ -759,9 +759,9 @@ class ParentStudentLink(Base):
     student_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     relationship_type: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    linked_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    linked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # relationships
     parent: Mapped["User"] = relationship("User", foreign_keys=[parent_user_id])
