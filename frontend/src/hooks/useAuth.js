@@ -21,10 +21,29 @@ const saveAuth = (auth) => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
 };
 
-const buildUserProfile = ({ username, email, profile, lastLoginAt, createdAt, isAdmin, preferredLanguage }) => ({
+const storePasswordCredential = async ({ username, email, password }) => {
+  if (!window.PasswordCredential || !navigator.credentials || !password) {
+    return;
+  }
+
+  try {
+    const credential = new window.PasswordCredential({
+      id: email || username,
+      name: username || email,
+      password,
+    });
+    await navigator.credentials.store(credential);
+  } catch (error) {
+    console.debug('Password credential storage was skipped', error);
+  }
+};
+
+const buildUserProfile = ({ username, email, profile, lastLoginAt, createdAt, isAdmin, preferredLanguage, role, aiGenerationEnabled }) => ({
   username,
   email,
   isAdmin: isAdmin || false,
+  role: role || 'learner',
+  aiGenerationEnabled: aiGenerationEnabled || false,
   preferredLanguage: preferredLanguage || 'en',
   firstName: profile?.firstName || '',
   lastName: profile?.lastName || '',
@@ -91,13 +110,16 @@ export const AuthProvider = ({ children }) => {
         preferredLanguage: result.preferred_language,
         profile: result.profile,
         createdAt: result.created_at,
-        lastLoginAt: new Date().toISOString()
+        lastLoginAt: new Date().toISOString(),
+        role: result.role,
+        aiGenerationEnabled: result.ai_generation_enabled,
       })
     };
 
     saveAuth(auth);
     setUser(auth.user);
     setToken(auth.token);
+    await storePasswordCredential({ username: result.username || username, email: result.email || email, password });
     return auth;
   }, []);
 
@@ -134,6 +156,8 @@ export const AuthProvider = ({ children }) => {
         profile: result.profile,
         createdAt: result.created_at,
         lastLoginAt: new Date().toISOString(),
+        role: result.role,
+        aiGenerationEnabled: result.ai_generation_enabled,
       }),
     };
     saveAuth(auth);
@@ -180,7 +204,12 @@ export const AuthProvider = ({ children }) => {
         register,
         applyAuthResponse,
         updateProfile,
-        logout
+        logout,
+        hasRole: (user, ...roles) => roles.includes(user?.role || 'learner'),
+        isAdmin: () => user?.isAdmin || false,
+        isCreator: () => user?.role === 'creator' || user?.isAdmin || false,
+        isSupervisor: () => user?.role === 'supervisor' || user?.isAdmin || false,
+        isLearner: () => user?.role === 'learner' || (!user?.role && !user?.isAdmin) || false,
       }}
     >
       {children}

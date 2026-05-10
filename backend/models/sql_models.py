@@ -415,6 +415,8 @@ class User(Base):
     preferred_language: Mapped[str] = mapped_column(String(10), default="en")
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    role: Mapped[str] = mapped_column(String(20), default="learner", nullable=False)
+    ai_generation_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     last_login: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -431,9 +433,43 @@ class User(Base):
             "preferred_language": self.preferred_language,
             "is_admin": self.is_admin,
             "is_active": self.is_active,
+            "role": self.role,
+            "ai_generation_enabled": self.ai_generation_enabled,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "last_login": self.last_login.isoformat() if self.last_login else None,
+        }
+
+
+# ---------------------------------------------------------------------------
+# Supervisor Assignment (supervisor-learner mapping)
+# ---------------------------------------------------------------------------
+
+class SupervisorAssignment(Base):
+    __tablename__ = "supervisor_assignments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    supervisor_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    learner_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    # relationships
+    supervisor: Mapped["User"] = relationship("User", foreign_keys=[supervisor_user_id])
+    learner: Mapped["User"] = relationship("User", foreign_keys=[learner_user_id])
+
+    __table_args__ = (
+        UniqueConstraint("supervisor_user_id", "learner_user_id", name="uq_supervisor_learner"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<SupervisorAssignment(id={self.id}, supervisor_id={self.supervisor_user_id}, learner_id={self.learner_user_id})>"
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "supervisor_user_id": self.supervisor_user_id,
+            "learner_user_id": self.learner_user_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
 

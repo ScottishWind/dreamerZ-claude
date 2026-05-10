@@ -5,6 +5,7 @@ import { Toaster } from "./components/ui/sonner";
 import { Navbar } from "./components/Navbar";
 import { Footer } from "./components/Footer";
 import { ErrorBoundary, NotFound } from "./components/ErrorStates";
+import { RequireRole } from "./components/RequireRole";
 import { Landing } from "./pages/Landing";
 import { LearnHub } from "./pages/LearnHub";
 import { ToolJourney } from "./pages/ToolJourney";
@@ -50,11 +51,32 @@ function App() {
                   <Route path="/register" element={<Register />} />
                   <Route path="/reset-password" element={<ChangePassword />} />
                   <Route path="/forgot-password" element={<ForgotPassword />} />
-                  <Route path="/admin" element={<AdminPanel />} />
+                  <Route 
+                    path="/admin" 
+                    element={
+                      <RequireRole roles={["creator", "admin"]}>
+                        <AdminPanel />
+                      </RequireRole>
+                    } 
+                  />
 
                   {/* Parent dashboard routes */}
-                  <Route path="/parent" element={<ParentDashboard />} />
-                  <Route path="/parent/students/:studentUserId" element={<ParentStudentDetail />} />
+                  <Route 
+                    path="/parent" 
+                    element={
+                      <RequireRole roles={["supervisor", "admin"]}>
+                        <ParentDashboard />
+                      </RequireRole>
+                    } 
+                  />
+                  <Route 
+                    path="/parent/students/:studentUserId" 
+                    element={
+                      <RequireRole roles={["supervisor", "admin"]}>
+                        <ParentStudentDetail />
+                      </RequireRole>
+                    } 
+                  />
 
                   {/* Backward-compatible redirects */}
                   <Route path="/tools" element={<Navigate to="/learn" replace />} />

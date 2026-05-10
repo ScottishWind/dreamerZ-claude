@@ -18,14 +18,21 @@ from config import ADMIN_EMAILS
 from database import get_db
 from models.sql_models import (
     User, Course, Module, Lesson, LessonContent, Quiz, QuizQuestion,
-    MediaAsset, Category, PricingPlan, FAQ, StudentCourseEnrollment,
+    MediaAsset, Category, PricingPlan, FAQ, StudentCourseEnrollment, SupervisorAssignment,
 )
-from models.user import AdminUserResponse
-from services.auth_service import get_current_admin
+from models.user import AdminUserResponse, RoleUpdate, AIFeatureUpdate
+from services.auth_service import get_current_admin, get_current_creator, require_ai_generation_enabled, get_current_supervisor, is_admin as is_admin_user
 from services import media_service
 from services import translation_service
 
-router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(get_current_admin)])
+# Admin-only router for user management and overview
+admin_router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(get_current_admin)])
+
+# Creator+Admin router for course management
+content_router = APIRouter(prefix="/admin", tags=["content"], dependencies=[Depends(get_current_creator)])
+
+# Supervisor+Admin router for supervisor features
+supervisor_router = APIRouter(prefix="/admin", tags=["supervisor"], dependencies=[Depends(get_current_supervisor)])
 
 
 # ── Pydantic Models ──────────────────────────────────────
@@ -51,10 +58,6 @@ class LessonUpdate(BaseModel):
     explanation: Optional[str] = None
     example: Optional[str] = None
     activity: Optional[str] = None
-
-
-class RoleUpdate(BaseModel):
-    is_admin: bool
 
 
 class AssetAttach(BaseModel):
@@ -128,7 +131,7 @@ class LessonRegeneratePayload(BaseModel):
 # CATEGORIES
 # ══════════════════════════════════════════════════════════
 
-@router.post("/categories")
+@content_router.post("/categories")
 async def create_category(
     payload: CategoryCreate,
     session: AsyncSession = Depends(get_db),
@@ -155,7 +158,7 @@ async def create_category(
     return cat.to_dict()
 
 
-@router.get("/categories")
+@content_router.get("/categories")
 async def list_categories(session: AsyncSession = Depends(get_db)):
     """List all categories (admin view)."""
     result = await session.execute(
@@ -164,7 +167,7 @@ async def list_categories(session: AsyncSession = Depends(get_db)):
     return [c.to_dict() for c in result.scalars().all()]
 
 
-@router.delete("/categories/{category_id}")
+@content_router.delete("/categories/{category_id}")
 async def delete_category(
     category_id: str,
     session: AsyncSession = Depends(get_db),
@@ -202,7 +205,7 @@ async def delete_category(
 # USER MANAGEMENT
 # ══════════════════════════════════════════════════════════
 
-@router.get("/users", response_model=list[AdminUserResponse])
+@admin_router.get("/users", response_model=list[AdminUserResponse])
 async def list_users(
     search: Optional[str] = Query(None, max_length=100),
     skip: int = Query(0, ge=0),
@@ -224,6 +227,20 @@ async def list_users(
     result = await session.execute(stmt)
     users = result.scalars().all()
 
+    # Build a mapping of learner_id -> [supervisor usernames] for learners in this page
+    learner_ids = [u.id for u in users if (u.role or "learner") == "learner"]
+    supervisors_map: dict[int, list[str]] = {}
+    if learner_ids:
+        assignment_result = await session.execute(
+            select(SupervisorAssignment, User)
+            .join(User, SupervisorAssignment.supervisor_user_id == User.id)
+            .where(SupervisorAssignment.learner_user_id.in_(learner_ids))
+        )
+        for assignment, supervisor_user in assignment_result.all():
+            supervisors_map.setdefault(assignment.learner_user_id, []).append(
+                supervisor_user.username
+            )
+
     out = []
     for u in users:
         email = (u.email or "").lower()
@@ -235,32 +252,31 @@ async def list_users(
             "last_login": u.last_login.isoformat() if u.last_login else None,
             "is_admin": is_super or bool(u.is_admin),
             "is_super_admin": is_super,
+            "is_active": u.is_active,
+            "role": u.role or "learner",
+            "ai_generation_enabled": u.ai_generation_enabled or False,
             "preferred_language": u.preferred_language or "en",
+            "supervisors": supervisors_map.get(u.id, []),
         })
     return out
 
 
-@router.get("/users/count")
+@admin_router.get("/users/count")
 async def user_count(session: AsyncSession = Depends(get_db)):
     result = await session.execute(select(func.count(User.id)))
     total = result.scalar_one()
     return {"total": total}
 
 
-@router.put("/users/{username}/role")
+@admin_router.put("/users/{username}/role")
 async def update_user_role(
     username: str,
     body: RoleUpdate,
     current_admin: dict = Depends(get_current_admin),
     session: AsyncSession = Depends(get_db),
 ):
-    """Promote or demote a user to/from admin role."""
+    """Change a user's role (learner/creator/supervisor/admin)."""
     caller_email = current_admin.get("email", "").lower()
-    if caller_email not in ADMIN_EMAILS:
-        raise HTTPException(
-            status_code=403,
-            detail="Only super-admins can manage admin roles",
-        )
 
     username = username.strip().lower()
     result = await session.execute(select(User).where(User.username == username))
@@ -268,22 +284,281 @@ async def update_user_role(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    user_email = (user.email or "").lower()
-    if user_email in ADMIN_EMAILS and not body.is_admin:
+    # Prevent self-demotion
+    if user.email == caller_email:
         raise HTTPException(
             status_code=403,
-            detail="Cannot demote a super-admin (remove from ADMIN_EMAILS env var instead)",
+            detail="You cannot change your own role",
         )
 
-    user.is_admin = body.is_admin
+    user_email = (user.email or "").lower()
+    if user_email in ADMIN_EMAILS and body.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Cannot change role of a super-admin (remove from ADMIN_EMAILS env var instead)",
+        )
+
+    user.role = body.role
+    # Sync is_admin flag with role
+    user.is_admin = (body.role == "admin")
     user.updated_at = datetime.now(timezone.utc)
     await session.commit()
 
-    action = "promoted to admin" if body.is_admin else "demoted to regular user"
-    return {"detail": f"User '{username}' {action}"}
+    return {"detail": f"User '{username}' role changed to '{body.role}'"}
 
 
-@router.delete("/users/{username}")
+@admin_router.put("/users/{username}/ai-generation")
+async def update_user_ai_generation(
+    username: str,
+    body: AIFeatureUpdate,
+    current_admin: dict = Depends(get_current_admin),
+    session: AsyncSession = Depends(get_db),
+):
+    """Enable or disable AI course generation for a creator."""
+    username = username.strip().lower()
+    result = await session.execute(select(User).where(User.username == username))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.ai_generation_enabled = body.enabled
+    user.updated_at = datetime.now(timezone.utc)
+    await session.commit()
+
+    return {"detail": f"AI generation {'enabled' if body.enabled else 'disabled'} for user '{username}'"}
+
+
+@admin_router.put("/users/{username}/active")
+async def update_user_active(
+    username: str,
+    body: AIFeatureUpdate,  # Reuse AIFeatureUpdate for enabled field
+    current_admin: dict = Depends(get_current_admin),
+    session: AsyncSession = Depends(get_db),
+):
+    """Enable or disable a user account."""
+    username = username.strip().lower()
+    result = await session.execute(select(User).where(User.username == username))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.is_active = body.enabled
+    user.updated_at = datetime.now(timezone.utc)
+    await session.commit()
+
+    return {"detail": f"User account {'enabled' if body.enabled else 'disabled'} for '{username}'"}
+
+
+# ── Supervisor Management Routes ─────────────────────────────────
+
+@supervisor_router.get("/supervisor/learners")
+async def get_supervisor_learners(
+    current_user: dict = Depends(get_current_supervisor),
+    session: AsyncSession = Depends(get_db),
+):
+    """Get list of learners assigned to current supervisor (or all for admin)."""
+    # If admin, return all assignments; if supervisor, return only theirs
+    if is_admin_user(current_user):
+        # Admin sees all assignments
+        result = await session.execute(
+            select(SupervisorAssignment, User)
+            .join(User, SupervisorAssignment.learner_user_id == User.id)
+        )
+    else:
+        # Supervisor sees only their assignments
+        supervisor_result = await session.execute(
+            select(User).where(User.username == current_user["username"].lower())
+        )
+        supervisor = supervisor_result.scalars().first()
+        if not supervisor:
+            return []
+
+        result = await session.execute(
+            select(SupervisorAssignment, User)
+            .join(User, SupervisorAssignment.learner_user_id == User.id)
+            .where(SupervisorAssignment.supervisor_user_id == supervisor.id)
+        )
+
+    assignments = result.all()
+
+    # Dedupe by learner_id so a learner with multiple supervisors only
+    # appears once (admins would otherwise see duplicate cards).
+    seen: set[int] = set()
+    out: list[dict] = []
+    for assignment, learner in assignments:
+        if learner.id in seen:
+            continue
+        seen.add(learner.id)
+        out.append({
+            "assignment_id": assignment.id,
+            "learner_id": learner.id,
+            "learner_username": learner.username,
+            "learner_email": learner.email,
+            "learner_role": learner.role,
+            "created_at": assignment.created_at.isoformat() if assignment.created_at else None,
+        })
+    return out
+
+
+@admin_router.post("/supervisor/{supervisor_username}/learners/{learner_username}")
+async def assign_learner_to_supervisor(
+    supervisor_username: str,
+    learner_username: str,
+    current_admin: dict = Depends(get_current_admin),
+    session: AsyncSession = Depends(get_db),
+):
+    """Assign a learner to a supervisor (admin only)."""
+    supervisor_username = supervisor_username.strip().lower()
+    learner_username = learner_username.strip().lower()
+    
+    # Get supervisor
+    supervisor_result = await session.execute(
+        select(User).where(User.username == supervisor_username)
+    )
+    supervisor = supervisor_result.scalars().first()
+    if not supervisor:
+        raise HTTPException(status_code=404, detail="Supervisor not found")
+    
+    if supervisor.role != "supervisor" and not (supervisor.email or "").lower() in ADMIN_EMAILS:
+        raise HTTPException(status_code=400, detail="User is not a supervisor")
+    
+    # Get learner
+    learner_result = await session.execute(
+        select(User).where(User.username == learner_username)
+    )
+    learner = learner_result.scalars().first()
+    if not learner:
+        raise HTTPException(status_code=404, detail="Learner not found")
+    
+    # Check if assignment already exists
+    existing_result = await session.execute(
+        select(SupervisorAssignment).where(
+            SupervisorAssignment.supervisor_user_id == supervisor.id,
+            SupervisorAssignment.learner_user_id == learner.id
+        )
+    )
+    if existing_result.scalars().first():
+        raise HTTPException(status_code=400, detail="Assignment already exists")
+    
+    # Create assignment
+    assignment = SupervisorAssignment(
+        supervisor_user_id=supervisor.id,
+        learner_user_id=learner.id
+    )
+    session.add(assignment)
+    await session.commit()
+    
+    return {"detail": f"Learner '{learner_username}' assigned to supervisor '{supervisor_username}'"}
+
+
+@admin_router.delete("/supervisor/{supervisor_username}/learners/{learner_username}")
+async def remove_learner_from_supervisor(
+    supervisor_username: str,
+    learner_username: str,
+    current_admin: dict = Depends(get_current_admin),
+    session: AsyncSession = Depends(get_db),
+):
+    """Remove a learner from a supervisor (admin only)."""
+    supervisor_username = supervisor_username.strip().lower()
+    learner_username = learner_username.strip().lower()
+    
+    # Get supervisor
+    supervisor_result = await session.execute(
+        select(User).where(User.username == supervisor_username)
+    )
+    supervisor = supervisor_result.scalars().first()
+    if not supervisor:
+        raise HTTPException(status_code=404, detail="Supervisor not found")
+    
+    # Get learner
+    learner_result = await session.execute(
+        select(User).where(User.username == learner_username)
+    )
+    learner = learner_result.scalars().first()
+    if not learner:
+        raise HTTPException(status_code=404, detail="Learner not found")
+    
+    # Delete assignment
+    delete_result = await session.execute(
+        select(SupervisorAssignment).where(
+            SupervisorAssignment.supervisor_user_id == supervisor.id,
+            SupervisorAssignment.learner_user_id == learner.id
+        )
+    )
+    assignment = delete_result.scalars().first()
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    
+    await session.delete(assignment)
+    await session.commit()
+    
+    return {"detail": f"Learner '{learner_username}' removed from supervisor '{supervisor_username}'"}
+
+
+@supervisor_router.get("/supervisor/learners/{learner_id}/progress")
+async def get_learner_progress(
+    learner_id: int,
+    current_user: dict = Depends(get_current_supervisor),
+    session: AsyncSession = Depends(get_db),
+):
+    """Get progress overview for a supervised learner.
+
+    Returns the same shape as the parent dashboard overview so the
+    frontend Student/Learner card can render consistently.
+    """
+    # Verify assignment exists (admins bypass assignment check)
+    if not is_admin_user(current_user):
+        supervisor_result = await session.execute(
+            select(User).where(User.username == current_user["username"].lower())
+        )
+        supervisor = supervisor_result.scalars().first()
+        if not supervisor:
+            raise HTTPException(status_code=403, detail="Invalid supervisor")
+
+        assignment_result = await session.execute(
+            select(SupervisorAssignment).where(
+                SupervisorAssignment.supervisor_user_id == supervisor.id,
+                SupervisorAssignment.learner_user_id == learner_id,
+            )
+        )
+        if not assignment_result.scalars().first():
+            raise HTTPException(status_code=403, detail="Learner not assigned to you")
+
+    # Reuse the same progress service used by the parent overview so the
+    # response shape matches what the frontend expects.
+    from services.progress_service import get_student_course_enrollments
+
+    learner_result = await session.execute(select(User).where(User.id == learner_id))
+    learner = learner_result.scalars().first()
+    if not learner:
+        raise HTTPException(status_code=404, detail="Learner not found")
+
+    enrollments = await get_student_course_enrollments(learner_id, session)
+
+    total_courses = len(enrollments)
+    completed_courses = sum(1 for e in enrollments if e.get("status") == "completed")
+    in_progress_courses = sum(1 for e in enrollments if e.get("status") == "in_progress")
+    total_time_spent = sum(e.get("total_time_spent_seconds", 0) for e in enrollments)
+
+    return {
+        "student": {
+            "id": learner.id,
+            "username": learner.username,
+            "email": learner.email,
+            "created_at": learner.created_at.isoformat() if learner.created_at else None,
+        },
+        "stats": {
+            "total_courses": total_courses,
+            "completed_courses": completed_courses,
+            "in_progress_courses": in_progress_courses,
+            "total_time_spent_seconds": total_time_spent,
+            "total_time_spent_hours": round(total_time_spent / 3600, 2),
+        },
+        "enrollments": enrollments,
+    }
+
+
+@admin_router.delete("/users/{username}")
 async def delete_user(
     username: str,
     session: AsyncSession = Depends(get_db),
@@ -308,7 +583,7 @@ async def delete_user(
 # LEGACY CONTENT MANAGEMENT (tools/modules — kept for compatibility)
 # ══════════════════════════════════════════════════════════
 
-@router.get("/tools")
+@content_router.get("/tools")
 async def admin_list_tools(session: AsyncSession = Depends(get_db)):
     """List courses with lesson counts (legacy 'tools' endpoint)."""
     stmt = (
@@ -334,7 +609,7 @@ async def admin_list_tools(session: AsyncSession = Depends(get_db)):
     return out
 
 
-@router.get("/tools/{tool_id}")
+@content_router.get("/tools/{tool_id}")
 async def admin_get_tool(
     tool_id: str,
     session: AsyncSession = Depends(get_db),
@@ -366,7 +641,7 @@ async def admin_get_tool(
     return d
 
 
-@router.put("/tools/{tool_id}/modules/{module_id}")
+@content_router.put("/tools/{tool_id}/modules/{module_id}")
 async def update_tool_module(
     tool_id: str,
     module_id: str,
@@ -434,7 +709,7 @@ async def update_tool_module(
 # LMS — COURSES
 # ══════════════════════════════════════════════════════════
 
-@router.get("/courses")
+@content_router.get("/courses")
 async def list_courses(
     status: Optional[str] = None,
     session: AsyncSession = Depends(get_db),
@@ -466,7 +741,7 @@ async def list_courses(
     return out
 
 
-@router.get("/courses/{course_id}")
+@content_router.get("/courses/{course_id}")
 async def get_course(
     course_id: str,
     session: AsyncSession = Depends(get_db),
@@ -480,7 +755,7 @@ async def get_course(
     return d
 
 
-@router.put("/courses/{course_id}")
+@content_router.put("/courses/{course_id}")
 async def update_course(
     course_id: str,
     update: CourseUpdate,
@@ -514,7 +789,7 @@ async def update_course(
     return {"detail": f"Course '{course_id}' updated", **update.model_dump(exclude_none=True)}
 
 
-@router.delete("/courses/{course_id}")
+@content_router.delete("/courses/{course_id}")
 async def delete_course(
     course_id: str,
     session: AsyncSession = Depends(get_db),
@@ -531,7 +806,7 @@ async def delete_course(
     return {"detail": f"Course '{course_id}' and all content deleted"}
 
 
-@router.delete("/sections/{section_id}")
+@content_router.delete("/sections/{section_id}")
 async def delete_section(
     section_id: str,
     session: AsyncSession = Depends(get_db),
@@ -554,7 +829,7 @@ async def delete_section(
 # LMS — LESSONS (Lesson model in SQL)
 # ══════════════════════════════════════════════════════════
 
-@router.get("/courses/{course_id}/sections")
+@content_router.get("/courses/{course_id}/sections")
 async def list_sections(
     course_id: str,
     session: AsyncSession = Depends(get_db),
@@ -589,7 +864,7 @@ async def list_sections(
     ]
 
 
-@router.get("/courses/{course_id}/lessons")
+@content_router.get("/courses/{course_id}/lessons")
 async def list_lessons(
     course_id: str,
     session: AsyncSession = Depends(get_db),
@@ -626,7 +901,7 @@ async def list_lessons(
     return out
 
 
-@router.put("/courses/{course_id}/lessons/{lesson_id}")
+@content_router.put("/courses/{course_id}/lessons/{lesson_id}")
 async def update_lesson(
     course_id: str,
     lesson_id: str,
@@ -692,7 +967,7 @@ async def update_lesson(
 
 # ── Per-lesson CRUD (matches frontend admin paths) ───────
 
-@router.post("/sections/{section_id}/lessons")
+@content_router.post("/sections/{section_id}/lessons")
 async def create_lesson(
     section_id: str,
     payload: LessonCreatePayload,
@@ -744,7 +1019,7 @@ async def create_lesson(
     return out
 
 
-@router.get("/lessons/{lesson_id}")
+@content_router.get("/lessons/{lesson_id}")
 async def get_lesson(
     lesson_id: str,
     session: AsyncSession = Depends(get_db),
@@ -829,7 +1104,7 @@ async def get_lesson(
     return out
 
 
-@router.put("/lessons/{lesson_id}")
+@content_router.put("/lessons/{lesson_id}")
 async def update_lesson_meta(
     lesson_id: str,
     update: LessonUpdate,
@@ -883,7 +1158,7 @@ async def update_lesson_meta(
     return {"detail": f"Lesson '{lesson_id}' updated", **update_data}
 
 
-@router.delete("/lessons/{lesson_id}")
+@content_router.delete("/lessons/{lesson_id}")
 async def delete_lesson(
     lesson_id: str,
     session: AsyncSession = Depends(get_db),
@@ -899,10 +1174,11 @@ async def delete_lesson(
     return {"detail": f"Lesson '{lesson_id}' deleted"}
 
 
-@router.post("/lessons/{lesson_id}/regenerate")
+@content_router.post("/lessons/{lesson_id}/regenerate")
 async def regenerate_lesson(
     lesson_id: str,
     payload: LessonRegeneratePayload,
+    current_user: dict = Depends(require_ai_generation_enabled),
     session: AsyncSession = Depends(get_db),
 ):
     """Regenerate lesson content using AI with optional instructions and source text."""
@@ -939,11 +1215,12 @@ async def regenerate_lesson(
         raise HTTPException(status_code=500, detail=f"Regeneration failed: {exc}")
 
 
-@router.post("/lessons/{lesson_id}/regenerate-with-docs")
+@content_router.post("/lessons/{lesson_id}/regenerate-with-docs")
 async def regenerate_lesson_with_docs(
     lesson_id: str,
     files: list[UploadFile] = File(default=[]),
     instructions: str = Form(""),
+    current_user: dict = Depends(require_ai_generation_enabled),
     session: AsyncSession = Depends(get_db),
 ):
     """Regenerate lesson content with uploaded docs as source + optional instructions."""
@@ -997,7 +1274,7 @@ async def regenerate_lesson_with_docs(
 
 # ── Lesson Content (per-language) ────────────────────────
 
-@router.get("/lessons/{lesson_id}/content/{language}")
+@content_router.get("/lessons/{lesson_id}/content/{language}")
 async def get_lesson_content(
     lesson_id: str,
     language: str,
@@ -1015,7 +1292,7 @@ async def get_lesson_content(
     return lc.to_dict()
 
 
-@router.put("/lessons/{lesson_id}/content/{language}")
+@content_router.put("/lessons/{lesson_id}/content/{language}")
 async def update_lesson_content(
     lesson_id: str,
     language: str,
@@ -1055,7 +1332,7 @@ async def update_lesson_content(
     return {"detail": f"Content updated for lesson '{lesson_id}' ({language})"}
 
 
-@router.put("/lessons/{lesson_id}/quiz")
+@content_router.put("/lessons/{lesson_id}/quiz")
 async def update_lesson_quiz(
     lesson_id: str,
     payload: QuizUpdate,
@@ -1159,7 +1436,7 @@ async def update_lesson_quiz(
 # ASSESSMENTS
 # ══════════════════════════════════════════════════════════
 
-@router.get("/courses/{course_id}/assessments")
+@content_router.get("/courses/{course_id}/assessments")
 async def list_assessments(
     course_id: str,
     session: AsyncSession = Depends(get_db),
@@ -1204,7 +1481,7 @@ async def list_assessments(
 # MEDIA MANAGEMENT
 # ══════════════════════════════════════════════════════════
 
-@router.post("/media/upload")
+@content_router.post("/media/upload")
 async def upload_media(
     file: UploadFile = File(...),
     lesson_slug: Optional[str] = Form(None),
@@ -1241,7 +1518,7 @@ async def upload_media(
     return asset
 
 
-@router.get("/media")
+@content_router.get("/media")
 async def list_media(
     asset_type: Optional[str] = None,
     lesson_slug: Optional[str] = None,
@@ -1267,7 +1544,7 @@ async def list_media(
     return assets
 
 
-@router.post("/media/{asset_id}/attach")
+@content_router.post("/media/{asset_id}/attach")
 async def attach_media(
     asset_id: int,
     body: AssetAttach,
@@ -1296,7 +1573,7 @@ async def attach_media(
 # TRANSLATION
 # ══════════════════════════════════════════════════════════
 
-@router.post("/courses/{course_id}/translate")
+@content_router.post("/courses/{course_id}/translate")
 async def translate_course(
     course_id: str,
     body: TranslateRequest,
@@ -1316,7 +1593,7 @@ async def translate_course(
     return translated
 
 
-@router.get("/courses/{course_id}/translation-status")
+@content_router.get("/courses/{course_id}/translation-status")
 async def translation_status(
     course_id: str,
     session: AsyncSession = Depends(get_db),
@@ -1338,7 +1615,7 @@ async def translation_status(
 # STATS
 # ══════════════════════════════════════════════════════════
 
-@router.get("/stats")
+@admin_router.get("/stats")
 async def admin_stats(session: AsyncSession = Depends(get_db)):
     """Dashboard stats: counts of users, courses, modules, lessons, media, etc."""
     user_count = (await session.execute(select(func.count(User.id)))).scalar_one()

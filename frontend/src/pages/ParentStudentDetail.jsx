@@ -141,8 +141,8 @@ export const ParentStudentDetail = () => {
                     <CourseRow
                       key={course.id}
                       course={course}
-                      isSelected={selectedCourse === course.id}
-                      onSelect={() => loadCourseReport(course.id)}
+                      isSelected={selectedCourse === course.course_id}
+                      onSelect={() => loadCourseReport(course.course_id)}
                     />
                   ))}
                 </div>

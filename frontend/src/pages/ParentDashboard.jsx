@@ -5,7 +5,7 @@ import { useAuth } from '../hooks/useAuth';
 import * as parentService from '../services/parentService';
 
 export const ParentDashboard = () => {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isSupervisor } = useAuth();
   const [students, setStudents] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -21,7 +21,21 @@ export const ParentDashboard = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const studentsData = await parentService.getParentStudents();
+      // Use supervisor endpoints if user is supervisor, otherwise use parent endpoints
+      let studentsData;
+      if (isSupervisor()) {
+        const rawSupervisorData = await parentService.getSupervisorLearners();
+        // Normalize supervisor payload to match parent-student shape used by StudentCard
+        studentsData = rawSupervisorData.map((s) => ({
+          user_id: s.learner_id,
+          learner_id: s.learner_id,
+          username: s.learner_username,
+          email: s.learner_email,
+          relationship_type: 'supervisor',
+        }));
+      } else {
+        studentsData = await parentService.getParentStudents();
+      }
       setStudents(studentsData);
     } catch (err) {
       setError(err.message);
@@ -70,20 +84,26 @@ export const ParentDashboard = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-slate-900 mb-2">Parent Dashboard</h1>
-          <p className="text-slate-600">Monitor your children's learning progress</p>
+          <h1 className="text-3xl font-bold text-slate-900 mb-2">
+            {isSupervisor() ? 'Supervisor Dashboard' : 'Parent Dashboard'}
+          </h1>
+          <p className="text-slate-600">
+            {isSupervisor() ? 'Monitor assigned learners\' progress' : 'Monitor your children\'s learning progress'}
+          </p>
         </div>
 
-        {/* Add Student Button */}
-        <div className="mb-6">
-          <button
-            onClick={() => setShowAddStudent(!showAddStudent)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
-          >
-            <Plus className="w-5 h-5" />
-            Add Student
-          </button>
-        </div>
+        {/* Add Student Button - only for parents, supervisors get assigned by admin */}
+        {!isSupervisor() && (
+          <div className="mb-6">
+            <button
+              onClick={() => setShowAddStudent(!showAddStudent)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+            >
+              <Plus className="w-5 h-5" />
+              Add Student
+            </button>
+          </div>
+        )}
 
         {/* Add Student Form */}
         {showAddStudent && (
@@ -141,6 +161,7 @@ export const ParentDashboard = () => {
 };
 
 const StudentCard = ({ student }) => {
+  const { isSupervisor } = useAuth();
   const [overview, setOverview] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -154,7 +175,10 @@ const StudentCard = ({ student }) => {
   const loadOverview = async () => {
     setIsLoading(true);
     try {
-      const data = await parentService.getStudentOverview(student.user_id);
+      // Use supervisor progress endpoint if user is supervisor
+      const data = isSupervisor()
+        ? await parentService.getLearnerProgress(student.learner_id || student.user_id)
+        : await parentService.getStudentOverview(student.user_id);
       setOverview(data);
     } catch (err) {
       console.error('Failed to load student overview:', err);

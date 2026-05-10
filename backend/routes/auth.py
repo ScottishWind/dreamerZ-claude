@@ -93,6 +93,8 @@ async def register_user(user: UserCreate, session: AsyncSession = Depends(get_db
         "email": email,
         "created_at": created_at,
         "is_admin": email.lower() in ADMIN_EMAILS,
+        "role": "learner",
+        "ai_generation_enabled": False,
         "preferred_language": lang,
     }
 
@@ -120,7 +122,7 @@ async def login_user(credentials: UserLogin, request: Request, session: AsyncSes
     admin = is_admin(user)
     user_lang = user.get("preferred_language", DEFAULT_LANGUAGE)
     token = create_access_token(
-        {"sub": user["username"], "email": user["email"], "is_admin": admin, "lang": user_lang}
+        {"sub": user["username"], "email": user["email"], "is_admin": admin, "lang": user_lang, "role": user.get("role", "learner")}
     )
 
     # Update last_login via SQLAlchemy
@@ -138,6 +140,8 @@ async def login_user(credentials: UserLogin, request: Request, session: AsyncSes
         "email": user["email"],
         "created_at": user["created_at"],
         "is_admin": admin,
+        "role": user.get("role", "learner"),
+        "ai_generation_enabled": user.get("ai_generation_enabled", False),
         "preferred_language": user_lang,
     }
 
@@ -149,6 +153,8 @@ async def get_profile(current_user: dict = Depends(get_current_user)):
         "email": current_user["email"],
         "created_at": current_user["created_at"],
         "is_admin": is_admin(current_user),
+        "role": current_user.get("role", "learner"),
+        "ai_generation_enabled": current_user.get("ai_generation_enabled", False),
         "preferred_language": current_user.get("preferred_language", DEFAULT_LANGUAGE),
     }
 

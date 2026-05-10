@@ -5,11 +5,13 @@ import {
   Users, BookOpen, BarChart3, Search, Trash2, Shield,
   ChevronDown, ChevronUp, Edit3, Plus, X, Save, RefreshCw,
   AlertTriangle, GripVertical, Upload, FileText, Image,
-  Download, Paperclip, File, Globe, Languages, Check, Sparkles
+  Download, Paperclip, File, Globe, Languages, Check, Sparkles,
+  Filter, SortDesc
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { LANGUAGES } from '../hooks/useLanguage';
 import { ContentManager } from './admin/ContentManager';
+import { UserCard } from './admin/UserCard';
 import { formatErrorDetail } from '../lib/utils';
 
 const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
@@ -68,12 +70,17 @@ const getFileIcon = (type, mimeType) => {
 // USERS TAB
 // ══════════════════════════════════════════════════════════
 const UsersTab = ({ token }) => {
+  const { user: currentUser } = useAuth();
   const [users, setUsers] = useState([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [roleLoading, setRoleLoading] = useState(null);
+  const [filterRole, setFilterRole] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [sortBy, setSortBy] = useState('joined');
+  const [sortOrder, setSortOrder] = useState('desc');
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
@@ -104,17 +111,17 @@ const UsersTab = ({ token }) => {
     }
   };
 
-  const handleToggleAdmin = async (username, currentIsAdmin) => {
+  const handleRoleChange = async (username, newRole) => {
     setRoleLoading(username);
     setError('');
     try {
       await adminFetch(`/users/${username}/role`, token, {
         method: 'PUT',
-        body: JSON.stringify({ is_admin: !currentIsAdmin }),
+        body: JSON.stringify({ role: newRole }),
       });
       setUsers((prev) =>
         prev.map((u) =>
-          u.username === username ? { ...u, is_admin: !currentIsAdmin } : u
+          u.username === username ? { ...u, role: newRole, is_admin: newRole === 'admin' } : u
         )
       );
     } catch (e) {
@@ -124,113 +131,235 @@ const UsersTab = ({ token }) => {
     }
   };
 
+  const handleAIToggle = async (username, currentEnabled) => {
+    setRoleLoading(username);
+    setError('');
+    try {
+      await adminFetch(`/users/${username}/ai-generation`, token, {
+        method: 'PUT',
+        body: JSON.stringify({ enabled: !currentEnabled }),
+      });
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.username === username ? { ...u, ai_generation_enabled: !currentEnabled } : u
+        )
+      );
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setRoleLoading(null);
+    }
+  };
+
+  const handleAssignSupervisor = async (learnerUsername, supervisorUsername) => {
+    setRoleLoading(learnerUsername);
+    setError('');
+    try {
+      await adminFetch(`/supervisor/${supervisorUsername}/learners/${learnerUsername}`, token, {
+        method: 'POST',
+      });
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.username === learnerUsername
+            ? { ...u, supervisors: [...(u.supervisors || []), supervisorUsername] }
+            : u
+        )
+      );
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setRoleLoading(null);
+    }
+  };
+
+  const handleRemoveSupervisor = async (learnerUsername, supervisorUsername) => {
+    setRoleLoading(learnerUsername);
+    setError('');
+    try {
+      await adminFetch(`/supervisor/${supervisorUsername}/learners/${learnerUsername}`, token, {
+        method: 'DELETE',
+      });
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.username === learnerUsername
+            ? {
+                ...u,
+                supervisors: (u.supervisors || []).filter((s) => s !== supervisorUsername),
+              }
+            : u
+        )
+      );
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setRoleLoading(null);
+    }
+  };
+
+  const handleActiveToggle = async (username, currentEnabled) => {
+    setRoleLoading(username);
+    setError('');
+    try {
+      await adminFetch(`/users/${username}/active`, token, {
+        method: 'PUT',
+        body: JSON.stringify({ enabled: !currentEnabled }),
+      });
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.username === username ? { ...u, is_active: !currentEnabled } : u
+        )
+      );
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setRoleLoading(null);
+    }
+  };
+
+  // Filter and sort users
+  const filteredUsers = users.filter((u) => {
+    // Role filter
+    if (filterRole !== 'all' && u.role !== filterRole) return false;
+    
+    // Status filter
+    if (filterStatus === 'active' && u.is_active === false) return false;
+    if (filterStatus === 'disabled' && u.is_active !== false) return false;
+    
+    return true;
+  });
+
+  const sortedUsers = [...filteredUsers].sort((a, b) => {
+    let comparison = 0;
+    
+    switch (sortBy) {
+      case 'joined':
+        comparison = new Date(a.created_at || 0) - new Date(b.created_at || 0);
+        break;
+      case 'last_login':
+        comparison = new Date(a.last_login || 0) - new Date(b.last_login || 0);
+        break;
+      case 'name':
+        comparison = a.username.localeCompare(b.username);
+        break;
+      default:
+        comparison = 0;
+    }
+    
+    return sortOrder === 'asc' ? comparison : -comparison;
+  });
+
   return (
     <div className="space-y-4">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-        <input
-          type="text"
-          placeholder="Search by username or email..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-        />
+      {/* Search and filters */}
+      <div className="space-y-4">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search by username or email..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+          />
+        </div>
+
+        {/* Filter and sort controls */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Role filter */}
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-slate-400" />
+            <select
+              value={filterRole}
+              onChange={(e) => setFilterRole(e.target.value)}
+              className="text-sm px-3 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30"
+            >
+              <option value="all">All Roles</option>
+              <option value="learner">Learners</option>
+              <option value="creator">Creators</option>
+              <option value="supervisor">Supervisors</option>
+              <option value="admin">Admins</option>
+            </select>
+          </div>
+
+          {/* Status filter */}
+          <div className="flex items-center gap-2">
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="text-sm px-3 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30"
+            >
+              <option value="all">All Status</option>
+              <option value="active">Active</option>
+              <option value="disabled">Disabled</option>
+            </select>
+          </div>
+
+          {/* Sort */}
+          <div className="flex items-center gap-2">
+            <SortDesc className="w-4 h-4 text-slate-400" />
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="text-sm px-3 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30"
+            >
+              <option value="joined">Joined Date</option>
+              <option value="last_login">Last Login</option>
+              <option value="name">Name</option>
+            </select>
+            <button
+              onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+              className="text-sm px-2 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50"
+            >
+              {sortOrder === 'asc' ? '↑' : '↓'}
+            </button>
+          </div>
+
+          {/* Results count */}
+          <div className="ml-auto text-sm text-slate-500">
+            {sortedUsers.length} user{sortedUsers.length !== 1 ? 's' : ''}
+          </div>
+        </div>
       </div>
 
       {error && <div className="bg-red-50 text-red-700 text-sm px-4 py-2 rounded-lg">{error}</div>}
 
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50 text-left text-slate-500 text-xs uppercase tracking-wider">
-                <th className="px-4 py-3 font-medium">Username</th>
-                <th className="px-4 py-3 font-medium">Email</th>
-                <th className="px-4 py-3 font-medium hidden sm:table-cell">Joined</th>
-                <th className="px-4 py-3 font-medium hidden md:table-cell">Last Login</th>
-                <th className="px-4 py-3 font-medium">Role</th>
-                <th className="px-4 py-3 font-medium text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {loading ? (
-                <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">
-                  <RefreshCw className="w-5 h-5 animate-spin inline-block mr-2" />Loading users...
-                </td></tr>
-              ) : users.length === 0 ? (
-                <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">
-                  {search ? 'No users match your search' : 'No registered users yet'}
-                </td></tr>
-              ) : users.map((u) => (
-                <tr key={u.username} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-4 py-3 font-medium text-slate-900">{u.username}</td>
-                  <td className="px-4 py-3 text-slate-600">{u.email}</td>
-                  <td className="px-4 py-3 text-slate-500 hidden sm:table-cell">
-                    {u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}
-                  </td>
-                  <td className="px-4 py-3 text-slate-500 hidden md:table-cell">
-                    {u.last_login ? new Date(u.last_login).toLocaleDateString() : '—'}
-                  </td>
-                  <td className="px-4 py-3">
-                    {u.is_admin ? (
-                      <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
-                        <Shield className="w-3 h-3" /> {u.is_super_admin ? 'Super Admin' : 'Admin'}
-                      </span>
-                    ) : (
-                      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">User</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex items-center gap-2 justify-end">
-                      {/* Admin toggle — super-admins cannot be toggled */}
-                      {u.is_super_admin ? (
-                        <span className="text-xs text-slate-300" title="Super-admin (set via environment)">Protected</span>
-                      ) : (
-                        <button
-                          onClick={() => handleToggleAdmin(u.username, u.is_admin)}
-                          disabled={roleLoading === u.username}
-                          className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-colors ${
-                            u.is_admin
-                              ? 'bg-amber-50 text-amber-600 hover:bg-amber-100 border border-amber-200'
-                              : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-200'
-                          } disabled:opacity-50`}
-                          title={u.is_admin ? 'Remove admin privileges' : 'Grant admin privileges'}
-                        >
-                          {roleLoading === u.username ? (
-                            <RefreshCw className="w-3 h-3 animate-spin inline-block" />
-                          ) : u.is_admin ? (
-                            <>Remove Admin</>
-                          ) : (
-                            <>Make Admin</>
-                          )}
-                        </button>
-                      )}
-                      {/* Delete — cannot delete admins */}
-                      {!u.is_admin && (
-                        deleteConfirm === u.username ? (
-                          <div className="flex items-center gap-1">
-                            <button onClick={() => handleDelete(u.username)} className="text-xs bg-red-500 text-white px-2 py-1 rounded-lg hover:bg-red-600">Confirm</button>
-                            <button onClick={() => setDeleteConfirm(null)} className="text-xs bg-slate-100 text-slate-600 px-2 py-1 rounded-lg hover:bg-slate-200">Cancel</button>
-                          </div>
-                        ) : (
-                          <button onClick={() => setDeleteConfirm(u.username)} className="text-slate-400 hover:text-red-500 transition-colors p-1" title="Delete user">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* User cards grid */}
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <RefreshCw className="w-6 h-6 animate-spin text-primary" />
         </div>
-        {!loading && users.length > 0 && (
-          <div className="px-4 py-2 bg-slate-50 text-xs text-slate-400 border-t border-slate-100">
-            Showing {users.length} user{users.length !== 1 ? 's' : ''}
-          </div>
-        )}
-      </div>
+      ) : sortedUsers.length === 0 ? (
+        <div className="text-center py-12 bg-white rounded-xl border border-slate-200">
+          <Users className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+          <p className="text-slate-500">
+            {search || filterRole !== 'all' || filterStatus !== 'all'
+              ? 'No users match your filters'
+              : 'No registered users yet'}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {sortedUsers.map((u) => (
+            <UserCard
+              key={u.username}
+              user={u}
+              currentUser={currentUser}
+              allSupervisors={users.filter(
+                (x) => x.role === 'supervisor' || x.role === 'admin'
+              )}
+              onRoleChange={handleRoleChange}
+              onAIToggle={handleAIToggle}
+              onActiveToggle={handleActiveToggle}
+              onAssignSupervisor={handleAssignSupervisor}
+              onRemoveSupervisor={handleRemoveSupervisor}
+              onDelete={handleDelete}
+              roleLoading={roleLoading}
+              deleteConfirm={deleteConfirm}
+              setDeleteConfirm={setDeleteConfirm}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 };
@@ -1109,17 +1238,31 @@ const StatsTab = ({ token }) => {
 // MAIN ADMIN PANEL
 // ══════════════════════════════════════════════════════════
 export const AdminPanel = () => {
-  const { user, token, isAuthenticated, isLoaded } = useAuth();
+  const { user, token, isAuthenticated, isLoaded, isAdmin, isCreator } = useAuth();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('content');
 
   useEffect(() => {
-    if (isLoaded && (!isAuthenticated || !user?.isAdmin)) {
+    if (isLoaded && (!isAuthenticated || (!isAdmin() && !isCreator()))) {
       navigate('/', { replace: true });
     }
-  }, [isLoaded, isAuthenticated, user, navigate]);
+  }, [isLoaded, isAuthenticated, isAdmin, isCreator, navigate]);
 
-  if (!isLoaded || !user?.isAdmin) {
+  // Filter tabs based on user role
+  const visibleTabs = TABS.filter(tab => {
+    if (isAdmin()) return true; // Admin sees all tabs
+    if (isCreator()) return tab.id === 'content'; // Creator only sees Course Manager
+    return false;
+  });
+
+  // Set default active tab to first visible tab if current tab is not visible
+  useEffect(() => {
+    if (!visibleTabs.find(t => t.id === activeTab)) {
+      setActiveTab(visibleTabs[0]?.id || 'content');
+    }
+  }, [visibleTabs, activeTab]);
+
+  if (!isLoaded || (!isAdmin() && !isCreator())) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <RefreshCw className="w-6 h-6 animate-spin text-primary" />
@@ -1137,13 +1280,13 @@ export const AdminPanel = () => {
           </div>
           <div>
             <h1 className="text-xl font-bold text-slate-900">Admin Panel</h1>
-            <p className="text-sm text-slate-500">Manage users, content, and media</p>
+            <p className="text-sm text-slate-500">Role based controls to manage content and users</p>
           </div>
         </div>
 
         {/* Tab bar */}
         <div className="flex gap-1 bg-white rounded-xl border border-slate-200 p-1 mb-6 overflow-x-auto">
-          {TABS.map((tab) => {
+          {visibleTabs.map((tab) => {
             const isActive = activeTab === tab.id;
             return (
               <button

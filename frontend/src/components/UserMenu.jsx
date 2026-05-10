@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronDown, User, BarChart3, LogOut, Shield } from 'lucide-react';
+import { ChevronDown, User, BarChart3, LogOut, Shield, Users } from 'lucide-react';
+import { useAuth } from '../hooks/useAuth';
 
 export const UserMenu = ({ user, onLogout }) => {
   const [open, setOpen] = useState(false);
   const menuRef = useRef(null);
+  const { isCreator, isSupervisor, isAdmin } = useAuth();
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -58,9 +60,19 @@ export const UserMenu = ({ user, onLogout }) => {
               <p className="text-sm font-medium text-slate-800 truncate">
                 {user?.name || user?.username || 'Dreamer'}
               </p>
-              {user?.isAdmin && (
+              {isAdmin() && (
                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">
                   ADMIN
+                </span>
+              )}
+              {isCreator() && !isAdmin() && (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">
+                  CREATOR
+                </span>
+              )}
+              {isSupervisor() && !isAdmin() && (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-700">
+                  SUPERVISOR
                 </span>
               )}
             </div>
@@ -70,7 +82,7 @@ export const UserMenu = ({ user, onLogout }) => {
           </div>
 
           {/* Menu items */}
-          {user?.isAdmin && (
+          {(isCreator() || isAdmin()) && (
             <Link
               to="/admin"
               role="menuitem"
@@ -79,6 +91,18 @@ export const UserMenu = ({ user, onLogout }) => {
             >
               <Shield className="w-4 h-4 text-amber-500" />
               Admin Panel
+            </Link>
+          )}
+
+          {(isSupervisor() || isAdmin()) && (
+            <Link
+              to="/parent"
+              role="menuitem"
+              onClick={handleLinkClick}
+              className="flex items-center gap-3 px-4 py-2.5 text-sm text-purple-700 hover:bg-purple-50 transition-colors"
+            >
+              <Users className="w-4 h-4 text-purple-500" />
+              Parent Dashboard
             </Link>
           )}
 

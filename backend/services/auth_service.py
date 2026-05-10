@@ -59,6 +59,8 @@ def _user_to_dict(user: User) -> dict:
         "hashed_password": user.hashed_password,
         "preferred_language": user.preferred_language or "en",
         "is_admin": user.is_admin,
+        "role": user.role or "learner",
+        "ai_generation_enabled": user.ai_generation_enabled or False,
         "created_at": user.created_at.isoformat() if user.created_at else None,
         "updated_at": user.updated_at.isoformat() if user.updated_at else None,
         "last_login": user.last_login.isoformat() if user.last_login else None,
@@ -134,12 +136,65 @@ def is_admin(user: dict) -> bool:
     return bool(user.get("is_admin", False))
 
 
+def has_role(user: dict, *roles: str) -> bool:
+    """Check if a user has any of the specified roles."""
+    user_role = user.get("role", "learner")
+    # Super-admins are always considered admins
+    if user.get("email", "").lower() in ADMIN_EMAILS and "admin" in roles:
+        return True
+    return user_role in roles
+
+
+async def require_role(*roles: str):
+    """FastAPI dependency factory — require specific role(s)."""
+    async def role_dependency(authorization: Optional[str] = Header(None)):
+        user = await get_current_user(authorization)
+        if not has_role(user, *roles):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Access denied. Required role(s): {', '.join(roles)}"
+            )
+        return user
+    return role_dependency
+
+
 async def get_current_admin(authorization: Optional[str] = Header(None)):
     """FastAPI dependency — require admin privileges."""
     user = await get_current_user(authorization)
     if not is_admin(user):
-        raise HTTPException(status_code=403, detail="Admin access required")
+        raise HTTPException(status_code=403, detail="Admin privileges required")
     return user
+
+
+async def get_current_creator(authorization: Optional[str] = Header(None)):
+    """FastAPI dependency — require creator or admin privileges."""
+    user = await get_current_user(authorization)
+    if not has_role(user, "creator", "admin"):
+        raise HTTPException(status_code=403, detail="Creator or admin privileges required")
+    return user
+
+
+async def get_current_supervisor(authorization: Optional[str] = Header(None)):
+    """FastAPI dependency — require supervisor or admin privileges."""
+    user = await get_current_user(authorization)
+    if not has_role(user, "supervisor", "admin"):
+        raise HTTPException(status_code=403, detail="Supervisor or admin privileges required")
+    return user
+
+
+async def require_ai_generation_enabled(authorization: Optional[str] = Header(None)):
+    """FastAPI dependency — require AI generation to be enabled for user."""
+    user = await get_current_user(authorization)
+    # Admins always have AI generation enabled
+    if is_admin(user):
+        return user
+    # Creators must have ai_generation_enabled flag
+    if has_role(user, "creator") and user.get("ai_generation_enabled"):
+        return user
+    raise HTTPException(
+        status_code=403,
+        detail="AI generation feature not enabled for your account"
+    )
 
 
 async def authenticate_user(username: Optional[str], email: Optional[str], password: str):
@@ -155,6 +210,10 @@ async def authenticate_user(username: Optional[str], email: Optional[str], passw
         return None
 
     if not verify_password(password, user.get("hashed_password", "")):
+        return None
+
+    # Check if user account is active
+    if not user.get("is_active", True):
         return None
 
     return user

@@ -3,11 +3,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Upload, Sparkles, CheckCircle2, AlertTriangle, RefreshCw,
   FileText, Play, ChevronDown, ChevronRight, Edit3, Save, X, ArrowRight,
-  Eye, GraduationCap, Info
+  Eye, GraduationCap, Info, Lock
 } from 'lucide-react';
 import { JourneyPlayer } from '../../components/JourneyPlayer';
 import { draftToLearnerTool } from './previewAdapter';
 import { formatErrorDetail } from '../../lib/utils';
+import { useAuth } from '../../hooks/useAuth';
 
 // Max lessons generated concurrently to avoid API rate limits
 const LESSON_CONCURRENCY = 4;
@@ -103,10 +104,14 @@ const ValidationBadge = ({ validation }) => {
 
 // ── Main component ───────────────────────────────────────
 export const CourseCreatorTab = ({ token, onPublishSuccess }) => {
+  const { user } = useAuth();
   const [step, setStep] = useState('config');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [busy, setBusy] = useState(false);
+
+  // Check if AI generation is enabled for the user
+  const aiGenerationEnabled = user?.aiGenerationEnabled || false;
 
   // Multi-file upload
   const [files, setFiles] = useState([]);
@@ -536,6 +541,16 @@ export const CourseCreatorTab = ({ token, onPublishSuccess }) => {
     <div className="space-y-4">
       <StepIndicator currentStep={step} />
 
+      {!aiGenerationEnabled && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm px-4 py-3 rounded-lg flex items-center gap-3">
+          <Lock className="w-4 h-4 flex-shrink-0" />
+          <div>
+            <p className="font-medium">AI Generation Disabled</p>
+            <p className="text-xs mt-0.5">Contact an admin to enable AI course generation for your account.</p>
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="bg-red-50 text-red-700 text-sm px-4 py-2 rounded-lg flex items-center gap-2">
           <AlertTriangle className="w-4 h-4" /> {error}
@@ -755,9 +770,9 @@ export const CourseCreatorTab = ({ token, onPublishSuccess }) => {
             )}
             <button
               onClick={handleGenerateBlueprint}
-              disabled={busy || parsingFiles.size > 0}
+              disabled={busy || parsingFiles.size > 0 || !aiGenerationEnabled}
               className="bg-primary text-white px-5 py-2.5 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-primary/90 disabled:opacity-50"
-              title={parsingFiles.size > 0 ? 'Wait for documents to finish parsing' : 'Generate course blueprint'}
+              title={!aiGenerationEnabled ? 'AI generation is disabled for your account' : parsingFiles.size > 0 ? 'Wait for documents to finish parsing' : 'Generate course blueprint'}
             >
               {busy ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
               Generate Blueprint
@@ -806,8 +821,9 @@ export const CourseCreatorTab = ({ token, onPublishSuccess }) => {
                     {!allGenerated && (
                       <button
                         onClick={generateAllLessons}
-                        disabled={bulkRunning || anyGenerating}
+                        disabled={bulkRunning || anyGenerating || !aiGenerationEnabled}
                         className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-primary/90 disabled:opacity-50"
+                        title={!aiGenerationEnabled ? 'AI generation is disabled for your account' : 'Generate all lessons'}
                       >
                         {bulkRunning ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
                         Generate All Lessons
@@ -980,7 +996,9 @@ export const CourseCreatorTab = ({ token, onPublishSuccess }) => {
                                               <>
                                                 <button
                                                   onClick={() => generateLesson(module.id, lesson.id)}
-                                                  className="text-xs px-2.5 py-1 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 flex items-center gap-1"
+                                                  disabled={!aiGenerationEnabled}
+                                                  className="text-xs px-2.5 py-1 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 flex items-center gap-1 disabled:opacity-50"
+                                                  title={!aiGenerationEnabled ? 'AI generation is disabled for your account' : 'Generate lesson'}
                                                 >
                                                   <Sparkles className="w-3 h-3" />
                                                   Generate
@@ -998,8 +1016,9 @@ export const CourseCreatorTab = ({ token, onPublishSuccess }) => {
                                               <>
                                                 <button
                                                   onClick={() => generateLesson(module.id, lesson.id)}
-                                                  className="p-1 text-slate-400 hover:text-primary"
-                                                  title="Regenerate"
+                                                  disabled={!aiGenerationEnabled}
+                                                  className="p-1 text-slate-400 hover:text-primary disabled:opacity-50"
+                                                  title={!aiGenerationEnabled ? 'AI generation is disabled for your account' : 'Regenerate'}
                                                 >
                                                   <RefreshCw className="w-4 h-4" />
                                                 </button>

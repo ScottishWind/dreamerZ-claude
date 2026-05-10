@@ -4,14 +4,15 @@ import { Button } from '../components/ui/button';
 import { SEO } from '../components/SEO';
 import { useAuth } from '../hooks/useAuth';
 import { LANGUAGES } from '../hooks/useLanguage';
-import { Lock, Mail, User, Globe } from 'lucide-react';
+import { Lock, Mail, User, Globe, Eye, EyeOff } from 'lucide-react';
 
 export const Register = () => {
   const { register } = useAuth();
   const navigate = useNavigate();
-  const [username, setUsername] = useState('');
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [preferredLanguage, setPreferredLanguage] = useState('en');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -25,8 +26,8 @@ export const Register = () => {
       return;
     }
 
-    if (!username.match(/^[a-zA-Z0-9_]{3,30}$/)) {
-      setError('Username must be 3-30 characters (letters, numbers, underscore only).');
+    if (!name.match(/^[a-zA-Z0-9_]{3,30}$/)) {
+      setError('Name must be 3-30 characters (letters, numbers, underscore only).');
       return;
     }
     if (!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
@@ -40,7 +41,7 @@ export const Register = () => {
 
     setLoading(true);
     try {
-      await register({ username, email, password, preferred_language: preferredLanguage });
+      await register({ username: name, email, password, preferred_language: preferredLanguage });
       navigate('/learn');
     } catch (err) {
       setError(err.message || 'Unable to create account.');
@@ -51,22 +52,31 @@ export const Register = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 pt-24 pb-16">
-      <SEO title="Register" description="Create a DreamerZ_Beta account with username, email, and password." />
+      <SEO title="Register" description="Create a DreamerZ_Beta account with your name, email, and password." />
       <div className="max-w-xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-10 mt-10">
           <h1 className="text-3xl font-bold text-slate-900 mb-3">Create your account</h1>
-          <p className="text-slate-600 mb-8">Register with a username, password, and email address.</p>
+          <p className="text-slate-600 mb-8">Register with your name, email, and password.</p>
 
-          <form className="space-y-6" onSubmit={handleSubmit}>
+          <form
+            className="space-y-6"
+            onSubmit={handleSubmit}
+            autoComplete="on"
+            method="post"
+            action="#"
+          >
             <label className="block text-sm font-medium text-slate-700">
-              Username
+              Name
               <div className="mt-2 relative rounded-xl border border-slate-200 bg-slate-50 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary">
                 <User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  id="register-name"
+                  name="name"
+                  autoComplete="name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
                   className="w-full rounded-xl border-0 bg-transparent py-3 pl-12 pr-4 text-slate-900 outline-none"
-                  placeholder="Choose a username"
+                  placeholder="Your name"
                   required
                 />
               </div>
@@ -77,7 +87,11 @@ export const Register = () => {
               <div className="mt-2 relative rounded-xl border border-slate-200 bg-slate-50 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary">
                 <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
+                  id="register-email"
+                  name="email"
+                  autoComplete="username email"
                   type="email"
+                  inputMode="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full rounded-xl border-0 bg-transparent py-3 pl-12 pr-4 text-slate-900 outline-none"
@@ -92,14 +106,29 @@ export const Register = () => {
               <div className="mt-2 relative rounded-xl border border-slate-200 bg-slate-50 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary">
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
-                  type="password"
+                  id="register-password"
+                  name="new-password"
+                  autoComplete="new-password"
+                  type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full rounded-xl border-0 bg-transparent py-3 pl-12 pr-4 text-slate-900 outline-none"
+                  className="w-full rounded-xl border-0 bg-transparent py-3 pl-12 pr-12 text-slate-900 outline-none"
                   placeholder="Create a password"
                   required
+                  minLength={8}
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((s) => !s)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                >
+                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
               </div>
+              <p className="mt-1.5 text-xs text-slate-500">
+                At least 8 characters, including an uppercase letter and a number.
+              </p>
             </label>
 
             <label className="block text-sm font-medium text-slate-700">

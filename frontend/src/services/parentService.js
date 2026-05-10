@@ -153,3 +153,31 @@ export const getStudentCourseLessons = async (studentUserId, courseId) => {
   }
   return response.json();
 };
+
+// ---------------------------------------------------------------------------
+// Supervisor-Student Links (new supervisor-specific endpoints)
+// ---------------------------------------------------------------------------
+
+export const getSupervisorLearners = async () => {
+  const response = await fetch(`${API_BASE}/api/admin/supervisor/learners`, {
+    method: 'GET',
+    headers: getAuthHeaders()
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || 'Failed to get supervisor learners');
+  }
+  return response.json();
+};
+
+export const getLearnerProgress = async (learnerId) => {
+  const response = await fetch(`${API_BASE}/api/admin/supervisor/learners/${learnerId}/progress`, {
+    method: 'GET',
+    headers: getAuthHeaders()
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || 'Failed to get learner progress');
+  }
+  return response.json();
+};

@@ -14,11 +14,21 @@ const baseNavLinks = [
 export const Navbar = () => {
   const [isOpen, setIsOpen] = useState(false);
   const location = useLocation();
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, logout, isCreator, isSupervisor, isAdmin } = useAuth();
 
-  const navLinks = user?.isAdmin
-    ? [...baseNavLinks, { path: '/admin', label: 'Admin', icon: Shield }]
-    : baseNavLinks;
+  const navLinks = [
+    { path: '/learn', label: 'Learn', icon: BookOpen },
+  ];
+
+  // Add "For Parents" for supervisors and admins
+  if (isSupervisor() || isAdmin()) {
+    navLinks.push({ path: '/parents', label: 'For Parents', icon: Users });
+  }
+
+  // Add "Admin" for creators and admins
+  if (isCreator() || isAdmin()) {
+    navLinks.push({ path: '/admin', label: 'Admin', icon: Shield });
+  }
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-lg border-b border-slate-100" aria-label="Main navigation">

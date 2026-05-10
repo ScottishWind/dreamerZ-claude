@@ -3,13 +3,14 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { SEO } from '../components/SEO';
 import { useAuth } from '../hooks/useAuth';
-import { Lock, Mail, User } from 'lucide-react';
+import { Lock, Mail, Eye, EyeOff } from 'lucide-react';
 
 export const Login = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [usernameOrEmail, setUsernameOrEmail] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -19,13 +20,7 @@ export const Login = () => {
     setLoading(true);
 
     try {
-      const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(usernameOrEmail);
-      const payload = {
-        password,
-        username: isEmail ? undefined : usernameOrEmail,
-        email: isEmail ? usernameOrEmail : undefined,
-      };
-      await login(payload);
+      await login({ email, password });
       navigate('/learn');
     } catch (err) {
       setError(err.message || 'Unable to login. Please check your credentials.');
@@ -40,18 +35,29 @@ export const Login = () => {
       <div className="max-w-xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-10 mt-10">
           <h1 className="text-3xl font-bold text-slate-900 mb-3">Welcome back</h1>
-          <p className="text-slate-600 mb-8">Login with your username or email and password.</p>
+          <p className="text-slate-600 mb-8">Login with your email and password.</p>
 
-          <form className="space-y-6" onSubmit={handleSubmit}>
+          <form
+            className="space-y-6"
+            onSubmit={handleSubmit}
+            autoComplete="on"
+            method="post"
+            action="#"
+          >
             <label className="block text-sm font-medium text-slate-700">
-              Username or Email
+              Email
               <div className="mt-2 relative rounded-xl border border-slate-200 bg-slate-50 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary">
-                <User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
-                  value={usernameOrEmail}
-                  onChange={(e) => setUsernameOrEmail(e.target.value)}
+                  id="login-email"
+                  name="email"
+                  type="email"
+                  autoComplete="username email"
+                  inputMode="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                   className="w-full rounded-xl border-0 bg-transparent py-3 pl-12 pr-4 text-slate-900 outline-none"
-                  placeholder="yourname or email@example.com"
+                  placeholder="email@example.com"
                   required
                 />
               </div>
@@ -62,13 +68,24 @@ export const Login = () => {
               <div className="mt-2 relative rounded-xl border border-slate-200 bg-slate-50 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary">
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
-                  type="password"
+                  id="login-password"
+                  name="password"
+                  autoComplete="current-password"
+                  type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full rounded-xl border-0 bg-transparent py-3 pl-12 pr-4 text-slate-900 outline-none"
+                  className="w-full rounded-xl border-0 bg-transparent py-3 pl-12 pr-12 text-slate-900 outline-none"
                   placeholder="Enter your password"
                   required
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((s) => !s)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                >
+                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
               </div>
             </label>
 
