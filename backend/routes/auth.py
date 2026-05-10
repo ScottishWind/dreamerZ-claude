@@ -239,3 +239,85 @@ async def change_password(
         "is_admin": admin,
         "preferred_language": user_lang,
     }
+
+
+# ── Forgot password (no auth, no email) ──────────────────
+#
+# Self-serve unlock for users who can't sign in. Per product
+# spec, identity is verified only by knowing the username/email —
+# no email link, no security questions. This means anyone who
+# knows your login id can overwrite your password. Rate-limited
+# per client IP to slow down brute-force enumeration.
+
+class ForgotPasswordRequest(BaseModel):
+    login_id: str = Field(..., max_length=255, description="username or email")
+    new_password: str = Field(..., min_length=8, max_length=128)
+    confirm_password: str = Field(..., min_length=8, max_length=128)
+
+
+@router.post("/forgot-password", response_model=TokenResponse)
+async def forgot_password(
+    body: ForgotPasswordRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+):
+    """Reset a forgotten password without going through email.
+
+    The user identifies themselves by username or email; the new
+    password replaces the old one immediately. A fresh JWT is
+    returned so the frontend can log them in straight away.
+    """
+    client_ip = request.client.host if request.client else "unknown"
+    check_auth_rate_limit(client_ip)
+
+    new_password = body.new_password.strip()
+    confirm = body.confirm_password.strip()
+    login_id = body.login_id.strip().lower()
+
+    if new_password != confirm:
+        raise HTTPException(status_code=400, detail="Passwords do not match.")
+    if len(new_password) < 8:
+        raise HTTPException(
+            status_code=400,
+            detail="Password must be at least 8 characters long.",
+        )
+    if not login_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Enter your username or email.",
+        )
+
+    is_email = "@" in login_id
+    if is_email:
+        stmt = select(User).where(User.email == login_id)
+    else:
+        stmt = select(User).where(User.username == login_id)
+
+    result = await session.execute(stmt)
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="No account found with that username or email.",
+        )
+
+    user.hashed_password = get_password_hash(new_password)
+    user.updated_at = datetime.now(timezone.utc)
+    await session.commit()
+
+    admin_flag = (user.email or "").lower() in ADMIN_EMAILS or bool(user.is_admin)
+    user_lang = user.preferred_language or DEFAULT_LANGUAGE
+    new_token = create_access_token(
+        {"sub": user.username, "email": user.email, "is_admin": admin_flag, "lang": user_lang}
+    )
+
+    logger.info("Password reset via forgot-password for user %s", user.username)
+
+    return {
+        "access_token": new_token,
+        "username": user.username,
+        "email": user.email,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+        "is_admin": admin_flag,
+        "preferred_language": user_lang,
+    }

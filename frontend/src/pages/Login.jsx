@@ -72,7 +72,17 @@ export const Login = () => {
               </div>
             </label>
 
-            {error && <div className="text-sm text-rose-600">{error}</div>}
+            {error && (
+              <div className="text-sm text-rose-600 space-y-1">
+                <div>{error}</div>
+                <Link
+                  to="/forgot-password"
+                  className="inline-block text-primary font-semibold hover:text-primary/80"
+                >
+                  Forget my password →
+                </Link>
+              </div>
+            )}
 
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? 'Signing in...' : 'Sign in'}
@@ -83,6 +93,11 @@ export const Login = () => {
             New here?{' '}
             <Link to="/register" className="text-primary font-semibold hover:text-primary/80">
               Create an account
+            </Link>
+          </p>
+          <p className="mt-2 text-sm text-slate-500">
+            <Link to="/forgot-password" className="hover:text-slate-700">
+              Forget my password
             </Link>
           </p>
         </div>
