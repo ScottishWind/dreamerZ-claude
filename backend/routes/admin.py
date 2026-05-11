@@ -2086,6 +2086,207 @@ async def upload_media(
     return asset
 
 
+# ── Direct-to-Cloudinary upload (browser uploads, backend just signs) ──
+
+class SignUploadRequest(BaseModel):
+    """Body for /media/sign-upload — the client tells the backend what
+    kind of upload it's about to do; the backend produces a signed,
+    constrained ticket the browser then sends straight to Cloudinary."""
+    resource_type: str = "auto"          # 'image' | 'video' | 'raw' | 'auto'
+    lesson_slug: Optional[str] = None    # echoed back, not signed; used on /register
+    tags: Optional[list[str]] = None     # namespace, e.g. ['lesson-banner']
+
+
+_VIDEO_MAX_BYTES = 200 * 1024 * 1024     # 200 MB ceiling
+_IMAGE_MAX_BYTES = 25 * 1024 * 1024      # 25 MB ceiling
+_VIDEO_FORMATS = "mp4,webm,mov,m4v"
+_IMAGE_FORMATS = "jpg,jpeg,png,webp,gif"
+
+
+@content_router.post("/media/sign-upload")
+async def sign_upload(
+    body: SignUploadRequest,
+    current_user: dict = Depends(get_current_creator),
+):
+    """Return a Cloudinary signed-upload payload the browser can POST
+    directly to api.cloudinary.com/v1_1/<cloud>/<resource_type>/upload.
+
+    The signature locks `folder`, `public_id`, `tags`, and `allowed_formats`
+    so the client cannot override them after signing.
+    """
+    import time
+    import uuid as _uuid
+    import os as _os
+
+    cloud_name = _os.environ.get("CLOUDINARY_CLOUD_NAME", "")
+    api_key = _os.environ.get("CLOUDINARY_API_KEY", "")
+    api_secret = _os.environ.get("CLOUDINARY_API_SECRET", "")
+
+    # Fall back to parsing CLOUDINARY_URL (cloudinary://key:secret@cloud)
+    cloudinary_url_env = _os.environ.get("CLOUDINARY_URL", "")
+    if cloudinary_url_env and (not cloud_name or not api_key or not api_secret):
+        # cloudinary://<key>:<secret>@<cloud>
+        try:
+            no_scheme = cloudinary_url_env.split("://", 1)[1]
+            creds, cloud = no_scheme.split("@", 1)
+            api_key, api_secret = creds.split(":", 1)
+            cloud_name = cloud
+        except Exception:
+            pass
+
+    if not (cloud_name and api_key and api_secret):
+        raise HTTPException(
+            status_code=503,
+            detail="Cloudinary not configured. Set CLOUDINARY_URL "
+            "(or CLOUDINARY_CLOUD_NAME / API_KEY / API_SECRET).",
+        )
+
+    resource_type = (body.resource_type or "auto").lower()
+    if resource_type not in {"image", "video", "raw", "auto"}:
+        raise HTTPException(status_code=400, detail="Invalid resource_type.")
+
+    timestamp = int(time.time())
+    public_id = f"dreamerz/{_uuid.uuid4().hex[:16]}"
+    folder = "dreamerz"
+
+    is_video = resource_type == "video"
+    max_bytes = _VIDEO_MAX_BYTES if is_video else _IMAGE_MAX_BYTES
+    allowed_formats = _VIDEO_FORMATS if is_video else (
+        _IMAGE_FORMATS if resource_type == "image" else f"{_IMAGE_FORMATS},{_VIDEO_FORMATS}"
+    )
+    tags_str = ",".join(body.tags or [])
+
+    # Params included here are signed and cannot be changed by the client.
+    params_to_sign = {
+        "timestamp": timestamp,
+        "folder": folder,
+        "public_id": public_id,
+        "tags": tags_str,
+        "allowed_formats": allowed_formats,
+    }
+
+    import cloudinary.utils as _cu
+    signature = _cu.api_sign_request(params_to_sign, api_secret)
+
+    return {
+        "cloud_name": cloud_name,
+        "api_key": api_key,
+        "signature": signature,
+        "timestamp": timestamp,
+        "public_id": public_id,
+        "folder": folder,
+        "tags": tags_str,
+        "allowed_formats": allowed_formats,
+        "resource_type": resource_type,
+        "max_bytes": max_bytes,
+        # Convenience: the URL the browser will POST to.
+        "upload_url": f"https://api.cloudinary.com/v1_1/{cloud_name}/{resource_type}/upload",
+        # Echoed so /register can re-use them.
+        "lesson_slug": body.lesson_slug,
+    }
+
+
+class RegisterUploadRequest(BaseModel):
+    """Body for /media/register — the metadata Cloudinary returns after
+    a successful direct upload, plus app context (lesson, tags, alt_text)."""
+    public_id: str
+    secure_url: str
+    resource_type: str                   # 'image' | 'video' | 'raw'
+    format: Optional[str] = None
+    bytes: Optional[int] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    duration: Optional[float] = None
+    original_filename: Optional[str] = None
+    lesson_slug: Optional[str] = None
+    tags: Optional[list[str]] = None
+    alt_text: Optional[str] = None
+
+
+def _mime_from_format(fmt: Optional[str], resource_type: str) -> Optional[str]:
+    if not fmt:
+        return None
+    fmt = fmt.lower()
+    overrides = {
+        "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+        "webp": "image/webp", "gif": "image/gif", "svg": "image/svg+xml",
+        "mp4": "video/mp4", "webm": "video/webm", "mov": "video/quicktime",
+        "m4v": "video/x-m4v",
+    }
+    if fmt in overrides:
+        return overrides[fmt]
+    return f"{resource_type}/{fmt}"
+
+
+def _derive_video_urls(secure_url: str) -> tuple[Optional[str], Optional[str]]:
+    """Cloudinary URL transformation: derive poster (thumb) + HLS streaming
+    URLs from the base /upload/ URL. Returns (poster_url, streaming_url)."""
+    if "/upload/" not in secure_url:
+        return None, None
+    base_no_ext = secure_url.rsplit(".", 1)[0]
+    poster = base_no_ext.replace("/upload/", "/upload/so_0,c_thumb,w_640/") + ".jpg"
+    hls = base_no_ext.replace("/upload/", "/upload/sp_auto/") + ".m3u8"
+    return poster, hls
+
+
+@content_router.post("/media/register")
+async def register_upload(
+    body: RegisterUploadRequest,
+    current_user: dict = Depends(get_current_creator),
+    session: AsyncSession = Depends(get_db),
+):
+    """Record a MediaAsset for an upload that just landed in Cloudinary.
+
+    We don't see the file bytes — only the metadata Cloudinary returned.
+    The upload was authenticated by the signature we issued, so trusting
+    the response is OK; if you want belt-and-braces verification, call
+    cloudinary.api.resource(public_id) here.
+    """
+    # Resolve lesson, if attached
+    lesson_id = None
+    if body.lesson_slug:
+        result = await session.execute(
+            select(Lesson).where(Lesson.slug == body.lesson_slug)
+        )
+        les = result.scalars().first()
+        if les:
+            lesson_id = les.id
+
+    resource_type = (body.resource_type or "").lower()
+    asset_type = (
+        "image" if resource_type == "image"
+        else "video" if resource_type == "video"
+        else "document"
+    )
+
+    poster_url, streaming_url = (None, None)
+    if asset_type == "video":
+        poster_url, streaming_url = _derive_video_urls(body.secure_url)
+
+    asset = MediaAsset(
+        lesson_id=lesson_id,
+        asset_type=asset_type,
+        cloudinary_url=body.secure_url,
+        cloudinary_public_id=body.public_id,
+        original_filename=body.original_filename,
+        mime_type=_mime_from_format(body.format, resource_type),
+        file_size_bytes=body.bytes,
+        width=body.width,
+        height=body.height,
+        duration_seconds=body.duration,
+        poster_url=poster_url,
+        streaming_url=streaming_url,
+        upload_status="ready",
+        tags=body.tags or [],
+        alt_text=body.alt_text,
+        uploaded_by=current_user.get("username", "admin"),
+    )
+    session.add(asset)
+    await session.commit()
+    await session.refresh(asset)
+    return asset.to_dict()
+
+
 @content_router.get("/media")
 async def list_media(
     asset_type: Optional[str] = None,

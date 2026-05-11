@@ -372,6 +372,15 @@ class MediaAsset(Base):
     file_size_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     alt_text: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     duration_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    # Image/video dimensions in pixels (NULL for documents and audio).
+    width: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    height: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Derived Cloudinary URLs for video — populated at register time.
+    poster_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    streaming_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    # 'uploading' | 'processing' | 'ready' | 'failed' — used so the UI can
+    # show a spinner while Cloudinary transcodes video uploads.
+    upload_status: Mapped[str] = mapped_column(String(30), default="ready", nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     tags: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     uploaded_by: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
@@ -396,6 +405,11 @@ class MediaAsset(Base):
             "file_size_bytes": self.file_size_bytes,
             "alt_text": self.alt_text,
             "duration_seconds": self.duration_seconds,
+            "width": self.width,
+            "height": self.height,
+            "poster_url": self.poster_url,
+            "streaming_url": self.streaming_url,
+            "upload_status": self.upload_status,
             "sort_order": self.sort_order,
             "tags": self.tags,
             "uploaded_by": self.uploaded_by,

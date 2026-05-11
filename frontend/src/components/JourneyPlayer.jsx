@@ -28,83 +28,79 @@ const numericId = (value) => {
 const MediaAttachments = ({ assets, variant = 'inline' }) => {
   if (!assets || assets.length === 0) return null;
 
-  const mediaUrl = (id) => `${API_BASE}/api/content/media/${id}`;
+  // Prefer the direct Cloudinary URL when available (new flow). Older rows
+  // that pre-date Cloudinary integration fall back to the backend proxy at
+  // /api/content/media/{id}, which 302-redirects to the actual storage.
+  const assetUrl = (asset) => asset.cloudinary_url || `${API_BASE}/api/content/media/${asset.id}`;
 
-  // Compact list view — mirrors the lesson editor's Media tab styling.
-  if (variant === 'standalone') {
+  const renderAsset = (asset) => {
+    // Be tolerant of legacy rows that used `type` instead of `asset_type`.
+    const kind = asset.asset_type || asset.type;
+
+    if (kind === 'video') {
+      return (
+        <video
+          key={asset.id}
+          controls
+          preload="metadata"
+          poster={asset.poster_url || undefined}
+          className="w-full rounded-xl bg-black"
+        >
+          {asset.streaming_url && (
+            <source src={asset.streaming_url} type="application/x-mpegURL" />
+          )}
+          <source src={assetUrl(asset)} type={asset.mime_type || 'video/mp4'} />
+          Your browser cannot play this video.
+        </video>
+      );
+    }
+
+    // Image / document — same compact row in both view modes.
+    const isImage = kind === 'image';
+    const url = assetUrl(asset);
     return (
-      <div className="space-y-2">
-        {assets.map((asset) => {
-          const isImage = asset.type === 'image';
-          const url = mediaUrl(asset.id);
-          return (
-            <a
-              key={asset.id}
-              href={url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-3 bg-white border border-slate-200 rounded-lg px-3 py-2 hover:border-primary/40 hover:bg-slate-50 transition-all group"
-            >
-              {isImage ? (
-                <img
-                  src={url}
-                  alt={asset.alt_text || asset.original_filename}
-                  className="w-10 h-10 rounded object-cover flex-shrink-0"
-                  loading="lazy"
-                />
-              ) : (
-                <FileText className="w-5 h-5 text-slate-400 flex-shrink-0" />
-              )}
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-700 truncate group-hover:text-primary transition-colors">
-                  {asset.original_filename}
-                </p>
-                <p className="text-xs text-slate-400">
-                  {asset.file_extension?.toUpperCase()}
-                  {asset.file_size_bytes ? ` · ${(asset.file_size_bytes / 1024).toFixed(0)} KB` : ''}
-                </p>
-              </div>
-              <Download className="w-4 h-4 text-slate-400 group-hover:text-primary flex-shrink-0" />
-            </a>
-          );
-        })}
-      </div>
+      <a
+        key={asset.id}
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center gap-3 bg-white border border-slate-200 rounded-lg px-3 py-2 hover:border-primary/40 hover:bg-slate-50 transition-all group"
+      >
+        {isImage ? (
+          <img
+            src={url}
+            alt={asset.alt_text || asset.original_filename}
+            className="w-10 h-10 rounded object-cover flex-shrink-0"
+            loading="lazy"
+          />
+        ) : (
+          <FileText className="w-5 h-5 text-slate-400 flex-shrink-0" />
+        )}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-slate-700 truncate group-hover:text-primary transition-colors">
+            {asset.original_filename}
+          </p>
+          <p className="text-xs text-slate-400">
+            {(asset.format || asset.file_extension || '').toString().toUpperCase()}
+            {asset.file_size_bytes ? ` · ${(asset.file_size_bytes / 1024).toFixed(0)} KB` : ''}
+          </p>
+        </div>
+        <Download className="w-4 h-4 text-slate-400 group-hover:text-primary flex-shrink-0" />
+      </a>
     );
+  };
+
+  if (variant === 'standalone') {
+    return <div className="space-y-3">{assets.map(renderAsset)}</div>;
   }
 
-  // Legacy inline view (kept for any other callers).
   return (
     <div className="mt-6 pt-6 border-t border-slate-100">
       <h4 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
         <FileText className="w-4 h-4 text-slate-500" />
         Lesson Materials
       </h4>
-      <div className="space-y-2">
-        {assets.map((asset) => {
-          const isImage = asset.type === 'image';
-          const url = mediaUrl(asset.id);
-          return (
-            <a
-              key={asset.id}
-              href={url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-3 bg-white border border-slate-200 rounded-lg px-3 py-2 hover:border-primary/40 hover:bg-slate-50 transition-all group"
-            >
-              {isImage ? (
-                <img src={url} alt={asset.alt_text || asset.original_filename} className="w-10 h-10 rounded object-cover" />
-              ) : (
-                <FileText className="w-5 h-5 text-slate-400" />
-              )}
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-700 truncate">{asset.original_filename}</p>
-                <p className="text-xs text-slate-400">{asset.file_extension?.toUpperCase()}</p>
-              </div>
-              <Download className="w-4 h-4 text-slate-400 group-hover:text-primary flex-shrink-0" />
-            </a>
-          );
-        })}
-      </div>
+      <div className="space-y-3">{assets.map(renderAsset)}</div>
     </div>
   );
 };

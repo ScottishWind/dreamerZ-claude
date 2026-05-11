@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { QuizEditor } from './QuizEditor';
 import { formatErrorDetail } from '../../lib/utils';
+import { MediaUploader } from '../../components/MediaUploader';
 import { useAuth } from '../../hooks/useAuth';
 
 const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
@@ -493,26 +494,17 @@ export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted
       {/* Media tab */}
       {activeTab === 'media' && (
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
             <h3 className="font-medium text-slate-900 text-sm">Attached Files</h3>
-            <div>
-              <input
-                ref={mediaFileInputRef}
-                type="file"
-                multiple
-                className="hidden"
-                accept=".pdf,.docx,.doc,.png,.jpg,.jpeg,.webp,.svg,.xlsx,.pptx"
-                onChange={(e) => { handleMediaUpload(e.target.files); e.target.value = ''; }}
-              />
-              <button
-                onClick={() => mediaFileInputRef.current?.click()}
-                disabled={mediaUploading || readOnly}
-                className="bg-primary text-white px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 hover:bg-primary/90 disabled:opacity-50"
-              >
-                {mediaUploading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-                Upload & Attach
-              </button>
-            </div>
+            <MediaUploader
+              token={token}
+              lessonSlug={lessonId}
+              accept="image/*,video/*,.pdf,.docx,.doc,.xlsx,.pptx"
+              multiple
+              disabled={readOnly}
+              buttonLabel="Upload & attach"
+              onUploaded={(asset) => setMediaAssets((prev) => [...prev, asset])}
+            />
           </div>
 
           {mediaAssets.length === 0 ? (
