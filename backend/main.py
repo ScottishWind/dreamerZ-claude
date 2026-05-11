@@ -9,7 +9,13 @@ import os
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from database import init_db, seed_data, engine
+from database import (
+    engine,
+    init_db,
+    read_applied_reset_token,
+    seed_data,
+    write_applied_reset_token,
+)
 from middleware.security import setup_cors, add_security_headers
 from middleware.logging_mw import log_requests
 from routes import api_router
@@ -42,15 +48,39 @@ app.include_router(api_router)
 # ── Startup / Shutdown ────────────────────────────────────
 @app.on_event("startup")
 async def startup():
-    # Set DB_RESET=true once in the dashboard to drop and recreate the schema
-    # (e.g. after a non-backwards-compatible model change). Unset it after the
-    # first successful boot so subsequent restarts don't wipe data.
-    drop_first = os.environ.get("DB_RESET", "").lower() in ("true", "1", "yes")
-    if drop_first:
-        logger.warning("DB_RESET is set — dropping and recreating all tables.")
+    # DB_RESET is an idempotent one-shot token: its *value* (any non-empty
+    # string) requests one schema wipe. After a successful wipe the value
+    # is recorded in a Postgres COMMENT on the database (survives DROP
+    # SCHEMA CASCADE), so subsequent cold starts with the same value
+    # short-circuit and don't wipe again. To trigger another reset later,
+    # change the value (e.g. DB_RESET=v2). Leave it unset for no-op boots.
+    reset_token = os.environ.get("DB_RESET", "").strip()
+    drop_first = False
+
+    if reset_token:
+        applied = await read_applied_reset_token()
+        if applied == reset_token:
+            logger.info(
+                "DB_RESET=%r already applied; skipping wipe. "
+                "Change the value to trigger another reset.",
+                reset_token,
+            )
+        else:
+            logger.warning(
+                "DB_RESET=%r differs from last applied (%r) — "
+                "dropping and recreating all tables.",
+                reset_token, applied,
+            )
+            drop_first = True
+
     await init_db(drop_first=drop_first)
+
+    if drop_first:
+        # Record the token only after the wipe + recreate succeeds.
+        await write_applied_reset_token(reset_token)
+
     await seed_data()
-    logger.info("Database tables created and seeded.")
+    logger.info("Database tables ensured and seed data refreshed.")
 
 
 @app.on_event("shutdown")

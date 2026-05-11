@@ -4,6 +4,7 @@ import json
 import logging
 from collections import defaultdict
 from copy import deepcopy
+from typing import Optional
 
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy import select, text
@@ -102,6 +103,70 @@ async def get_db():
             yield session
         finally:
             await session.close()
+
+
+# ── DB_RESET idempotency ──────────────────────────────────
+#
+# The applied reset token is persisted as a Postgres COMMENT on the
+# database itself, which sits at a higher level than the `public`
+# schema and therefore survives `DROP SCHEMA public CASCADE`. Comment
+# text is plain JSON so future fields can piggy-back on the same slot.
+
+_IS_POSTGRES = DATABASE_URL.startswith("postgresql")
+
+
+async def read_applied_reset_token() -> Optional[str]:
+    """Return the reset token recorded by the previous successful wipe.
+
+    Returns None on SQLite, on first boot, or when the comment is empty/
+    unparseable. Never raises — any read failure is treated as 'no token
+    applied yet'.
+    """
+    if not _IS_POSTGRES:
+        return None
+    try:
+        async with engine.connect() as conn:
+            result = await conn.execute(text(
+                "SELECT obj_description(d.oid) FROM pg_database d "
+                "WHERE d.datname = current_database()"
+            ))
+            row = result.first()
+            if not row or not row[0]:
+                return None
+            data = json.loads(row[0])
+            if isinstance(data, dict):
+                return data.get("reset_token")
+            return None
+    except Exception as exc:  # noqa: BLE001
+        logging.warning("Could not read reset token from DB comment: %s", exc)
+        return None
+
+
+async def write_applied_reset_token(token: str) -> None:
+    """Persist the reset token that's just been applied.
+
+    Stored as JSON inside a COMMENT ON DATABASE so it survives schema
+    drops. No-op outside Postgres.
+    """
+    if not _IS_POSTGRES:
+        return
+    try:
+        payload = json.dumps({"reset_token": token})
+        async with engine.begin() as conn:
+            db_name_row = await conn.execute(text("SELECT current_database()"))
+            db_name = db_name_row.scalar()
+            if not db_name:
+                logging.warning("Could not determine current database name; "
+                                "skipping reset-token write.")
+                return
+            # `current_database()` only returns trusted server-controlled
+            # identifiers, so interpolating it into the DDL is safe.
+            await conn.execute(
+                text(f'COMMENT ON DATABASE "{db_name}" IS :payload'),
+                {"payload": payload},
+            )
+    except Exception as exc:  # noqa: BLE001
+        logging.error("Failed to record applied reset token: %s", exc)
 
 
 # ── Helpers ───────────────────────────────────────────────
