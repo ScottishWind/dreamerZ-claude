@@ -257,10 +257,14 @@ async def _overlay_localized_content(
 
 @router.get("/tools")
 async def get_content_tools(session: AsyncSession = Depends(get_db)):
-    """Get all tools (courses) with their lessons flattened into 'modules'."""
+    """Get all tools (courses) with their lessons flattened into 'modules'.
+
+    Only published courses are exposed to learners; drafts are hidden.
+    """
     stmt = (
         select(Course)
         .options(*_eager_load_course_options())
+        .where(Course.status == "published")
         .order_by(Course.sort_order)
     )
     result = await session.execute(stmt)
@@ -294,7 +298,7 @@ async def get_content_tool(
     stmt = (
         select(Course)
         .options(*_eager_load_course_with_content())
-        .where(Course.slug == tool_id)
+        .where(Course.slug == tool_id, Course.status == "published")
     )
     result = await session.execute(stmt)
     course = result.scalars().unique().first()
@@ -469,16 +473,16 @@ async def get_content_modules(
     session: AsyncSession = Depends(get_db),
 ):
     """Return lesson-level items. For backward compat the endpoint is still /modules."""
-    stmt = select(Lesson).options(
-        selectinload(Lesson.module).selectinload(Module.course),
+    stmt = (
+        select(Lesson)
+        .options(selectinload(Lesson.module).selectinload(Module.course))
+        .join(Module, Lesson.module_id == Module.id)
+        .join(Course, Module.course_id == Course.id)
+        .where(Course.status == "published")
     )
     if tool_id:
         tool_id = sanitize_id(tool_id, "tool_id")
-        stmt = (
-            stmt.join(Module, Lesson.module_id == Module.id)
-            .join(Course, Module.course_id == Course.id)
-            .where(Course.slug == tool_id)
-        )
+        stmt = stmt.where(Course.slug == tool_id)
     stmt = stmt.order_by(Lesson.sort_order)
 
     result = await session.execute(stmt)
@@ -541,7 +545,7 @@ async def get_content_tools_by_category(
         select(Course)
         .join(Category, Course.category_id == Category.id)
         .options(*_eager_load_course_options())
-        .where(Category.slug == category_id)
+        .where(Category.slug == category_id, Course.status == "published")
         .order_by(Course.sort_order)
     )
     result = await session.execute(stmt)

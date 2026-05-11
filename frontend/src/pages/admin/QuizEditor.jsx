@@ -103,6 +103,7 @@ export const QuizEditor = ({
   token,
   onSaved,
   onError,
+  readOnly = false,
 }) => {
   const [questions, setQuestions] = useState(() =>
     (initialQuestions || []).map((q, i) => normaliseQuestion(q, i)),
@@ -116,6 +117,7 @@ export const QuizEditor = ({
   const imageFileInputRef = useRef(null);
   const [dirty, setDirty] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const questionListRef = useRef(null);
 
   // Sync if parent reloads a different lesson / fresh data
   useEffect(() => {
@@ -254,10 +256,19 @@ export const QuizEditor = ({
 
   const addQuestion = (type = 'mcq') => {
     const q = blankQuestion(type);
+    const newIdx = questions.length;
     setQuestions((prev) => [...prev, q]);
-    setEditingIdx(questions.length);
+    setEditingIdx(newIdx);
     setDraft(q);
     setDirty(true);
+
+    // Scroll to the newly added question
+    setTimeout(() => {
+      const element = document.getElementById(`quiz-q-${newIdx}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 100);
   };
 
   const deleteQuestion = (idx) => {
@@ -336,52 +347,56 @@ export const QuizEditor = ({
             <p className="text-sm font-medium text-slate-800 mt-1 whitespace-pre-wrap">{q.question || <span className="italic text-slate-400">No question text</span>}</p>
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
-            <button
-              onClick={() => moveQuestion(idx, -1)}
-              disabled={idx === 0}
-              className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30"
-              title="Move up"
-            >
-              <ChevronUp className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => moveQuestion(idx, 1)}
-              disabled={idx === questions.length - 1}
-              className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30"
-              title="Move down"
-            >
-              <ChevronDown className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => startEdit(idx)}
-              className="p-1 text-slate-400 hover:text-primary"
-              title="Edit"
-            >
-              <Pencil className="w-4 h-4" />
-            </button>
-            {confirmDeleteIdx === idx ? (
+            {!readOnly && (
               <>
                 <button
-                  onClick={() => deleteQuestion(idx)}
-                  className="text-[11px] font-medium px-2 py-1 rounded bg-red-500 text-white hover:bg-red-600"
+                  onClick={() => moveQuestion(idx, -1)}
+                  disabled={idx === 0}
+                  className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                  title="Move up"
                 >
-                  Confirm
+                  <ChevronUp className="w-4 h-4" />
                 </button>
                 <button
-                  onClick={() => setConfirmDeleteIdx(null)}
-                  className="p-1 text-slate-400 hover:text-slate-700"
+                  onClick={() => moveQuestion(idx, 1)}
+                  disabled={idx === questions.length - 1}
+                  className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                  title="Move down"
                 >
-                  <X className="w-4 h-4" />
+                  <ChevronDown className="w-4 h-4" />
                 </button>
+                <button
+                  onClick={() => startEdit(idx)}
+                  className="p-1 text-slate-400 hover:text-primary"
+                  title="Edit"
+                >
+                  <Pencil className="w-4 h-4" />
+                </button>
+                {confirmDeleteIdx === idx ? (
+                  <>
+                    <button
+                      onClick={() => deleteQuestion(idx)}
+                      className="text-[11px] font-medium px-2 py-1 rounded bg-red-500 text-white hover:bg-red-600"
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      onClick={() => setConfirmDeleteIdx(null)}
+                      className="p-1 text-slate-400 hover:text-slate-700"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => setConfirmDeleteIdx(idx)}
+                    className="p-1 text-slate-400 hover:text-red-500"
+                    title="Delete"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
               </>
-            ) : (
-              <button
-                onClick={() => setConfirmDeleteIdx(idx)}
-                className="p-1 text-slate-400 hover:text-red-500"
-                title="Delete"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
             )}
           </div>
         </div>
@@ -678,10 +693,11 @@ export const QuizEditor = ({
               max={100}
               value={pass}
               onChange={(e) => {
-                setPass(Math.max(1, Math.min(100, parseInt(e.target.value, 10) || 70)));
+                setPass(parseInt(e.target.value, 10) || 70);
                 setDirty(true);
               }}
-              className="w-16 border border-slate-200 rounded px-2 py-0.5 text-xs"
+              disabled={readOnly}
+              className="w-16 border border-slate-200 rounded px-2 py-0.5 text-xs disabled:bg-slate-50 disabled:text-slate-400"
             />
           </label>
         </div>
@@ -689,12 +705,13 @@ export const QuizEditor = ({
           <div className="relative">
             <button
               onClick={() => setAddMenuOpen((o) => !o)}
-              className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 inline-flex items-center gap-1"
+              disabled={readOnly}
+              className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 inline-flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Plus className="w-3.5 h-3.5" /> Add Question
               <ChevronDown className="w-3 h-3" />
             </button>
-            {addMenuOpen && (
+            {addMenuOpen && !readOnly && (
               <>
                 <div
                   className="fixed inset-0 z-10"
@@ -726,7 +743,7 @@ export const QuizEditor = ({
           </div>
           <button
             onClick={saveAll}
-            disabled={saving || editingIdx !== null}
+            disabled={saving || editingIdx !== null || readOnly}
             className="text-xs px-3 py-1.5 rounded-lg bg-primary text-white hover:bg-primary/90 disabled:opacity-50 inline-flex items-center gap-1"
             title={editingIdx !== null ? 'Apply or cancel the open question first' : 'Save quiz'}
           >

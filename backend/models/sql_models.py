@@ -86,6 +86,7 @@ class Course(Base):
     available_languages: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     tags: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     blueprint_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    draft_version_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("courses.id", ondelete="SET NULL"), nullable=True)
     created_by: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -93,6 +94,7 @@ class Course(Base):
     # relationships
     category: Mapped["Category"] = relationship("Category", back_populates="courses")
     modules: Mapped[List["Module"]] = relationship("Module", back_populates="course", cascade="all, delete-orphan")
+    draft_version: Mapped["Course"] = relationship("Course", remote_side=[id], foreign_keys=[draft_version_id])
 
     def __repr__(self) -> str:
         return f"<Course(id={self.id}, slug='{self.slug}', name='{self.name}')>"
@@ -121,6 +123,7 @@ class Course(Base):
             "status": self.status,
             "available_languages": self.available_languages,
             "tags": self.tags,
+            "draft_version_id": self.draft_version_id,
             "created_by": self.created_by,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,

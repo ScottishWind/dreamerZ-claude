@@ -27,7 +27,7 @@ const adminFetch = async (path, token, options = {}) => {
   return res.json();
 };
 
-export const CourseDetail = ({ courseId, token, onBack, onCourseDeleted }) => {
+export const CourseDetail = ({ courseId, token, onBack, onCourseDeleted, onNavigateToDraft }) => {
   const [course, setCourse] = useState(null);
   const [sections, setSections] = useState([]);
   const [lessonsBySection, setLessonsBySection] = useState({});
@@ -37,6 +37,20 @@ export const CourseDetail = ({ courseId, token, onBack, onCourseDeleted }) => {
 
   const [expandedSections, setExpandedSections] = useState(new Set());
   const [selectedLessonId, setSelectedLessonId] = useState(null);
+  const [initialLoad, setInitialLoad] = useState(true);
+
+  // Reset lesson/section selection whenever the course being viewed changes
+  // (e.g. after creating a draft and navigating to it). Without this, the
+  // previously-selected lesson slug from the old course would leak into the
+  // new course context and edits would target the wrong lesson.
+  useEffect(() => {
+    setSelectedLessonId(null);
+    setExpandedSections(new Set());
+    setInitialLoad(true);
+  }, [courseId]);
+
+  // Draft version creation state
+  const [creatingDraft, setCreatingDraft] = useState(false);
 
   // Preview mode: creator | learner
   const [previewMode, setPreviewMode] = useState('creator');
@@ -92,19 +106,22 @@ export const CourseDetail = ({ courseId, token, onBack, onCourseDeleted }) => {
       });
       setLessonsBySection(byS);
 
-      // Auto-expand first section and select first lesson if none selected
-      if (sectionsData.length > 0 && expandedSections.size === 0) {
-        setExpandedSections(new Set([sectionsData[0].id]));
-      }
-      if (!selectedLessonId && lessonsData.length > 0) {
-        setSelectedLessonId(lessonsData[0].id);
+      // Auto-expand first section and select first lesson only on initial load
+      if (initialLoad) {
+        if (sectionsData.length > 0 && expandedSections.size === 0) {
+          setExpandedSections(new Set([sectionsData[0].id]));
+        }
+        if (!selectedLessonId && lessonsData.length > 0) {
+          setSelectedLessonId(lessonsData[0].id);
+        }
+        setInitialLoad(false);
       }
     } catch (e) {
       setError(e.message);
     } finally {
       setLoading(false);
     }
-  }, [courseId, token]);
+  }, [courseId, token, initialLoad, selectedLessonId, expandedSections, onNavigateToDraft]);
 
   useEffect(() => { loadCourseData(); }, [loadCourseData]);
 
@@ -222,8 +239,13 @@ export const CourseDetail = ({ courseId, token, onBack, onCourseDeleted }) => {
   // ── Delete course ──
   const deleteCourse = async () => {
     try {
-      await adminFetch(`/courses/${courseId}`, token, { method: 'DELETE' });
-      onCourseDeleted?.();
+      const res = await adminFetch(`/courses/${courseId}`, token, { method: 'DELETE' });
+      // If we just deleted a draft that had a parent, navigate back to the parent
+      if (res?.parent_slug && onNavigateToDraft) {
+        onNavigateToDraft(res.parent_slug);
+      } else {
+        onCourseDeleted?.();
+      }
     } catch (e) {
       setError(e.message);
     }
@@ -249,6 +271,22 @@ export const CourseDetail = ({ courseId, token, onBack, onCourseDeleted }) => {
       setError(e.message);
     } finally {
       setPublishing(false);
+    }
+  };
+
+  // ── Create draft version of published course ──
+  const createDraftVersion = async () => {
+    setCreatingDraft(true);
+    setError('');
+    try {
+      const result = await adminFetch(`/courses/${courseId}/create-draft`, token, { method: 'POST' });
+      if (onNavigateToDraft) {
+        onNavigateToDraft(result.draft_slug);
+      }
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setCreatingDraft(false);
     }
   };
 
@@ -290,6 +328,9 @@ export const CourseDetail = ({ courseId, token, onBack, onCourseDeleted }) => {
 
   const totalLessons = Object.values(lessonsBySection).reduce((sum, arr) => sum + arr.length, 0);
 
+  // Determine if course is editable (only drafts can be edited)
+  const isEditable = course?.status === 'draft';
+
   return (
     <div className="space-y-4 relative">
       {/* Published overlay */}
@@ -314,6 +355,60 @@ export const CourseDetail = ({ courseId, token, onBack, onCourseDeleted }) => {
           <span className="text-xs text-amber-800 font-medium">
             This course is in <span className="font-bold">draft</span> status. It will not be visible to learners until published.
           </span>
+        </div>
+      )}
+
+      {/* Published course - create draft banner */}
+      {course.status === 'published' && !course.draft_version_id && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <Info className="w-4 h-4 text-blue-600 flex-shrink-0" />
+            <div>
+              <span className="text-xs text-blue-800 font-medium">
+                This course is <span className="font-bold">published</span> and in read-only mode.
+              </span>
+              <span className="text-xs text-blue-700 block mt-0.5">Create a draft version to make edits without affecting learners.</span>
+            </div>
+          </div>
+          <button
+            onClick={createDraftVersion}
+            disabled={creatingDraft}
+            className="text-sm bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1.5 font-medium"
+          >
+            {creatingDraft ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                Creating...
+              </>
+            ) : (
+              <>
+                <FilePlus className="w-4 h-4" />
+                Create Draft
+              </>
+            )}
+          </button>
+        </div>
+      )}
+
+      {/* Read-only indicator for published courses with draft */}
+      {course.status === 'published' && course.draft_version_id && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+            <div>
+              <span className="text-xs text-emerald-800 font-medium">
+                This course is <span className="font-bold">published</span> and in read-only mode.
+              </span>
+              <span className="text-xs text-emerald-700 block mt-0.5">Edit the <span className="text-emerald-600 font-semibold">draft version</span> to make changes.</span>
+            </div>
+          </div>
+          <button
+            onClick={() => onNavigateToDraft && onNavigateToDraft(course.draft_slug)}
+            className="text-sm bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 flex items-center gap-1.5 font-medium"
+          >
+            <Edit3 className="w-4 h-4" />
+            Go to Draft
+          </button>
         </div>
       )}
 
@@ -385,23 +480,27 @@ export const CourseDetail = ({ courseId, token, onBack, onCourseDeleted }) => {
           )}
 
           {/* Delete course */}
-          {confirmDelete?.type === 'course' ? (
-            <div className="flex items-center gap-1">
-              <button onClick={deleteCourse} className="text-xs bg-red-500 text-white px-3 py-1.5 rounded-lg hover:bg-red-600">
-                Confirm
-              </button>
-              <button onClick={() => setConfirmDelete(null)} className="text-xs bg-slate-100 text-slate-600 px-2 py-1.5 rounded-lg">
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setConfirmDelete({ type: 'course', id: courseId })}
-              className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
-              title="Delete course"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
+          {isEditable && (
+            <>
+              {confirmDelete?.type === 'course' ? (
+                <div className="flex items-center gap-1">
+                  <button onClick={deleteCourse} className="text-xs bg-red-500 text-white px-3 py-1.5 rounded-lg hover:bg-red-600">
+                    Confirm
+                  </button>
+                  <button onClick={() => setConfirmDelete(null)} className="text-xs bg-slate-100 text-slate-600 px-2 py-1.5 rounded-lg">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setConfirmDelete({ type: 'course', id: courseId })}
+                  className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
+                  title={course?.status === 'draft' ? 'Delete draft' : 'Delete course'}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -458,11 +557,14 @@ export const CourseDetail = ({ courseId, token, onBack, onCourseDeleted }) => {
           <div className="bg-white rounded-xl border border-slate-200 p-3 space-y-1 max-h-[calc(100vh-240px)] overflow-y-auto">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Modules</h3>
+              {!isEditable && (
+                <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded">Read-only</span>
+              )}
             </div>
 
             {sections.length === 0 && !addingModule && (
               <p className="text-xs text-slate-400 text-center py-4">
-                No modules yet. Click below to add one.
+                {isEditable ? 'No modules yet. Click below to add one.' : 'No modules in this course.'}
               </p>
             )}
 
@@ -509,30 +611,34 @@ export const CourseDetail = ({ courseId, token, onBack, onCourseDeleted }) => {
                         <span className="text-[10px] text-slate-400 flex-shrink-0">
                           {lessons.length}
                         </span>
-                        <button
-                          onClick={() => startEditSection(section)}
-                          className="p-1 text-slate-400 hover:text-primary opacity-0 group-hover:opacity-100"
-                          title="Rename module"
-                        >
-                          <Edit3 className="w-3 h-3" />
-                        </button>
-                        {confirmDelete?.type === 'section' && confirmDelete?.id === section.id ? (
-                          <div className="flex items-center gap-0.5">
-                            <button onClick={() => deleteSection(section.id)} className="text-[10px] bg-red-500 text-white px-1.5 py-0.5 rounded">
-                              Del
+                        {isEditable && (
+                          <>
+                            <button
+                              onClick={() => startEditSection(section)}
+                              className="p-1 text-slate-400 hover:text-primary opacity-0 group-hover:opacity-100"
+                              title="Rename module"
+                            >
+                              <Edit3 className="w-3 h-3" />
                             </button>
-                            <button onClick={() => setConfirmDelete(null)} className="text-[10px] text-slate-400 px-0.5">
-                              <X className="w-3 h-3" />
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => setConfirmDelete({ type: 'section', id: section.id })}
-                            className="p-1 text-slate-400 hover:text-red-500"
-                            title="Delete module"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
+                            {confirmDelete?.type === 'section' && confirmDelete?.id === section.id ? (
+                              <div className="flex items-center gap-0.5">
+                                <button onClick={() => deleteSection(section.id)} className="text-[10px] bg-red-500 text-white px-1.5 py-0.5 rounded">
+                                  Del
+                                </button>
+                                <button onClick={() => setConfirmDelete(null)} className="text-[10px] text-slate-400 px-0.5">
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => setConfirmDelete({ type: 'section', id: section.id })}
+                                className="p-1 text-slate-400 hover:text-red-500"
+                                title="Delete module"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            )}
+                          </>
                         )}
                       </>
                     )}
@@ -560,31 +666,35 @@ export const CourseDetail = ({ courseId, token, onBack, onCourseDeleted }) => {
                       ))}
 
                       {/* Add lesson */}
-                      {addingLessonFor === section.id ? (
-                        <div className="flex items-center gap-1 px-1 py-1">
-                          <input
-                            value={newLessonTitle}
-                            onChange={(e) => setNewLessonTitle(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && createLesson(section.id)}
-                            placeholder="New lesson title..."
-                            autoFocus
-                            className="flex-1 text-xs border border-primary rounded px-1.5 py-1 focus:outline-none"
-                          />
-                          <button onClick={() => createLesson(section.id)} className="text-emerald-600 p-0.5">
-                            <Save className="w-3.5 h-3.5" />
-                          </button>
-                          <button onClick={() => { setAddingLessonFor(null); setNewLessonTitle(''); }} className="text-slate-400 p-0.5">
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => setAddingLessonFor(section.id)}
-                          className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs text-slate-400 hover:text-primary hover:bg-primary/5"
-                        >
-                          <FilePlus className="w-3 h-3" />
-                          Add lesson
-                        </button>
+                      {isEditable && (
+                        <>
+                          {addingLessonFor === section.id ? (
+                            <div className="flex items-center gap-1 px-1 py-1">
+                              <input
+                                value={newLessonTitle}
+                                onChange={(e) => setNewLessonTitle(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && createLesson(section.id)}
+                                placeholder="New lesson title..."
+                                autoFocus
+                                className="flex-1 text-xs border border-primary rounded px-1.5 py-1 focus:outline-none"
+                              />
+                              <button onClick={() => createLesson(section.id)} className="text-emerald-600 p-0.5">
+                                <Save className="w-3.5 h-3.5" />
+                              </button>
+                              <button onClick={() => { setAddingLessonFor(null); setNewLessonTitle(''); }} className="text-slate-400 p-0.5">
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setAddingLessonFor(section.id)}
+                              className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs text-slate-400 hover:text-primary hover:bg-primary/5"
+                            >
+                              <FilePlus className="w-3 h-3" />
+                              Add lesson
+                            </button>
+                          )}
+                        </>
                       )}
                     </div>
                   )}
@@ -593,49 +703,62 @@ export const CourseDetail = ({ courseId, token, onBack, onCourseDeleted }) => {
             })}
 
             {/* Add Module */}
-            {addingModule ? (
-              <div className="flex items-center gap-1 px-1 py-1 border-t border-slate-100 pt-2 mt-2">
-                <input
-                  value={newModuleTitle}
-                  onChange={(e) => setNewModuleTitle(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && createModule()}
-                  placeholder="New module title..."
-                  autoFocus
-                  className="flex-1 text-sm border border-primary rounded px-2 py-1 focus:outline-none"
-                />
-                <button onClick={createModule} className="text-emerald-600 p-1">
-                  <Save className="w-3.5 h-3.5" />
-                </button>
-                <button onClick={() => { setAddingModule(false); setNewModuleTitle(''); }} className="text-slate-400 p-1">
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => setAddingModule(true)}
-                className="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-xs text-slate-500 hover:text-primary hover:bg-primary/5 border-t border-slate-100 mt-2 pt-3"
-              >
-                <FolderPlus className="w-3.5 h-3.5" />
-                Add Module
-              </button>
+            {isEditable && (
+              <>
+                {addingModule ? (
+                  <div className="flex items-center gap-1 px-1 py-1 border-t border-slate-100 pt-2 mt-2">
+                    <input
+                      value={newModuleTitle}
+                      onChange={(e) => setNewModuleTitle(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && createModule()}
+                      placeholder="New module title..."
+                      autoFocus
+                      className="flex-1 text-sm border border-primary rounded px-2 py-1 focus:outline-none"
+                    />
+                    <button onClick={createModule} className="text-emerald-600 p-0.5">
+                      <Save className="w-3.5 h-3.5" />
+                    </button>
+                    <button onClick={() => { setAddingModule(false); setNewModuleTitle(''); }} className="text-slate-400 p-0.5">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setAddingModule(true)}
+                    className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs text-slate-400 hover:text-primary hover:bg-primary/5 border-t border-slate-100 pt-2 mt-2"
+                  >
+                    <FolderPlus className="w-3 h-3" />
+                    Add module
+                  </button>
+                )}
+              </>
             )}
           </div>
 
           {/* Main: Lesson editor */}
           <div className="bg-white rounded-xl border border-slate-200 p-5">
             {selectedLessonId ? (
-              <LessonEditor
-                key={selectedLessonId}
-                lessonId={selectedLessonId}
-                token={token}
-                onLessonUpdated={handleLessonUpdated}
-                onLessonDeleted={handleLessonDeleted}
-              />
+              <>
+                {!isEditable && (
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-2 mb-4 flex items-center gap-3">
+                    <Info className="w-4 h-4 text-slate-600 flex-shrink-0" />
+                    <span className="text-xs text-slate-700 font-medium">
+                      This lesson is in <span className="font-bold">read-only</span> mode. Edit the draft version to make changes.
+                    </span>
+                  </div>
+                )}
+                <LessonEditor
+                  key={selectedLessonId}
+                  lessonId={selectedLessonId}
+                  token={token}
+                  onLessonUpdated={handleLessonUpdated}
+                  readOnly={!isEditable}
+                />
+              </>
             ) : (
-              <div className="text-center text-slate-400 py-16">
-                <BookOpen className="w-10 h-10 mx-auto mb-3 text-slate-300" />
-                <p className="text-sm">Select a lesson to edit its content.</p>
-                <p className="text-xs mt-1">Or add a new module/lesson from the sidebar.</p>
+              <div className="flex flex-col items-center justify-center h-96 text-slate-400">
+                <BookOpen className="w-12 h-12 mb-3" />
+                <p className="text-sm">Select a lesson to edit</p>
               </div>
             )}
           </div>

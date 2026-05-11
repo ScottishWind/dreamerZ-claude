@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Search, Plus, BookOpen, RefreshCw, Sparkles, AlertTriangle, X,
-  Folder, Trash2,
+  Folder, Trash2, FilePlus,
 } from 'lucide-react';
 import { formatErrorDetail } from '../../lib/utils';
 
@@ -30,6 +30,7 @@ export const CourseList = ({ token, onSelectCourse, onNewCourse }) => {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [draftSlugs, setDraftSlugs] = useState({});
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -43,6 +44,20 @@ export const CourseList = ({ token, onSelectCourse, onNewCourse }) => {
       ]);
       setCourses(coursesData);
       setCategories(catsData);
+
+      // Load draft slugs for courses that have draft_version_id
+      const draftMap = {};
+      for (const course of coursesData) {
+        if (course.draft_version_id) {
+          try {
+            const draft = await adminFetch(`/courses/${course.draft_version_id}`, token);
+            draftMap[course.id] = draft.slug;
+          } catch (e) {
+            // Draft might have been deleted, ignore
+          }
+        }
+      }
+      setDraftSlugs(draftMap);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -54,6 +69,8 @@ export const CourseList = ({ token, onSelectCourse, onNewCourse }) => {
 
   const filteredCourses = useMemo(() => {
     return courses.filter(c => {
+      // Filter out draft version copies (they have -draft in slug)
+      if (c.slug && c.slug.includes('-draft')) return false;
       if (categoryFilter !== 'all' && c.category_id !== categoryFilter) return false;
       if (search.trim()) {
         const q = search.toLowerCase();
@@ -215,11 +232,27 @@ export const CourseList = ({ token, onSelectCourse, onNewCourse }) => {
                   <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/10 to-violet-100 flex items-center justify-center flex-shrink-0">
                     <BookOpen className="w-5 h-5 text-primary" />
                   </div>
-                  {course.status === 'draft' && (
-                    <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold mr-7">
-                      Draft
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2 mr-7">
+                    {course.status === 'draft' && (
+                      <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">
+                        Draft
+                      </span>
+                    )}
+                    {course.status === 'published' && draftSlugs[course.id] && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelectCourse(draftSlugs[course.id]);
+                        }}
+                        className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-semibold flex items-center gap-1 hover:bg-blue-200"
+                        title="Edit draft version"
+                      >
+                        <FilePlus className="w-2.5 h-2.5" />
+                        Has Draft
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <h3 className="font-bold text-slate-900 mb-1 group-hover:text-primary transition-colors line-clamp-2 pr-7">
                   {course.name}

@@ -42,6 +42,11 @@ export const ContentManager = ({ token }) => {
     setView('detail');
   };
 
+  const handleNavigateToDraft = (draftSlug) => {
+    setSelectedCourseId(draftSlug);
+    // Keep view as 'detail' but change to the draft course
+  };
+
   if (view === 'detail' && selectedCourseId) {
     return (
       <CourseDetail
@@ -49,6 +54,7 @@ export const ContentManager = ({ token }) => {
         token={token}
         onBack={goToList}
         onCourseDeleted={goToList}
+        onNavigateToDraft={handleNavigateToDraft}
       />
     );
   }

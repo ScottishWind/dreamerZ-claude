@@ -45,7 +45,7 @@ const ALL_TABS = [
   { id: 'ai', label: 'AI Actions', icon: Sparkles },
 ];
 
-export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted }) => {
+export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted, readOnly = false }) => {
   const { user, isAdmin } = useAuth();
   const canUseAI = isAdmin() || !!user?.aiGenerationEnabled;
   const TABS = canUseAI ? ALL_TABS : ALL_TABS.filter(t => t.id !== 'ai');
@@ -127,6 +127,7 @@ export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted
 
   // ── Content tab ──
   const saveContent = async () => {
+    if (readOnly) return;
     setSaving(true);
     setError('');
     try {
@@ -269,26 +270,28 @@ export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted
             {lesson.estimated_minutes}min · ID: {lessonId}
           </p>
         </div>
-        <div>
-          {confirmDelete ? (
-            <div className="flex items-center gap-2">
-              <button onClick={deleteLesson} className="text-xs bg-red-500 text-white px-3 py-1.5 rounded-lg hover:bg-red-600">
-                Confirm Delete
+        {!readOnly && (
+          <div>
+            {confirmDelete ? (
+              <div className="flex items-center gap-2">
+                <button onClick={deleteLesson} className="text-xs bg-red-500 text-white px-3 py-1.5 rounded-lg hover:bg-red-600">
+                  Confirm Delete
+                </button>
+                <button onClick={() => setConfirmDelete(false)} className="text-xs bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg hover:bg-slate-200">
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setConfirmDelete(true)}
+                className="text-xs text-red-500 hover:bg-red-50 px-3 py-1.5 rounded-lg flex items-center gap-1"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Delete Lesson
               </button>
-              <button onClick={() => setConfirmDelete(false)} className="text-xs bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg hover:bg-slate-200">
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setConfirmDelete(true)}
-              className="text-xs text-red-500 hover:bg-red-50 px-3 py-1.5 rounded-lg flex items-center gap-1"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              Delete Lesson
-            </button>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Alerts */}
@@ -333,7 +336,8 @@ export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted
             <input
               value={contentForm.title}
               onChange={(e) => setContentForm(f => ({ ...f, title: e.target.value }))}
-              className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/40"
+              disabled={readOnly}
+              className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:bg-slate-50 disabled:text-slate-400"
             />
           </label>
 
@@ -343,7 +347,8 @@ export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted
               type="number"
               value={contentForm.estimated_minutes}
               onChange={(e) => setContentForm(f => ({ ...f, estimated_minutes: parseInt(e.target.value, 10) || 10 }))}
-              className="mt-1 w-32 border border-slate-200 rounded-lg px-3 py-2 text-sm"
+              disabled={readOnly}
+              className="mt-1 w-32 border border-slate-200 rounded-lg px-3 py-2 text-sm disabled:bg-slate-50 disabled:text-slate-400"
             />
           </label>
 
@@ -354,7 +359,8 @@ export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted
               onChange={(e) => setContentForm(f => ({ ...f, explanation: e.target.value }))}
               rows={8}
               placeholder="Main teaching content..."
-              className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary/40"
+              disabled={readOnly}
+              className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:bg-slate-50 disabled:text-slate-400"
             />
           </label>
 
@@ -365,7 +371,8 @@ export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted
               onChange={(e) => setContentForm(f => ({ ...f, example: e.target.value }))}
               rows={5}
               placeholder="Real-world example..."
-              className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary/40"
+              disabled={readOnly}
+              className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:bg-slate-50 disabled:text-slate-400"
             />
           </label>
 
@@ -376,14 +383,15 @@ export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted
               onChange={(e) => setContentForm(f => ({ ...f, activity: e.target.value }))}
               rows={5}
               placeholder="Hands-on practice activity..."
-              className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary/40"
+              disabled={readOnly}
+              className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:bg-slate-50 disabled:text-slate-400"
             />
           </label>
 
           <div className="flex justify-end pt-2">
             <button
               onClick={saveContent}
-              disabled={saving}
+              disabled={saving || readOnly}
               className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-primary/90 disabled:opacity-50"
             >
               {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
@@ -401,6 +409,7 @@ export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted
           initialQuestions={quizQuestions}
           passingScore={lesson.assessment?.passing_score || 70}
           token={token}
+          readOnly={readOnly}
           onSaved={(saved) => {
             setQuizQuestions(saved?.questions || []);
             setLesson((l) => (l ? { ...l, assessment: saved } : l));
@@ -471,7 +480,7 @@ export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted
 
             <button
               onClick={regenerateLesson}
-              disabled={regenerating || (!aiInstructions.trim() && aiFiles.length === 0)}
+              disabled={regenerating || readOnly || (!aiInstructions.trim() && aiFiles.length === 0)}
               className="w-full bg-violet-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium flex items-center justify-center gap-2 hover:bg-violet-700 disabled:opacity-50"
             >
               {regenerating ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
@@ -497,7 +506,7 @@ export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted
               />
               <button
                 onClick={() => mediaFileInputRef.current?.click()}
-                disabled={mediaUploading}
+                disabled={mediaUploading || readOnly}
                 className="bg-primary text-white px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 hover:bg-primary/90 disabled:opacity-50"
               >
                 {mediaUploading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
@@ -523,9 +532,11 @@ export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted
                     <p className="text-sm font-medium text-slate-700 truncate">{asset.original_filename}</p>
                     <p className="text-xs text-slate-400">{asset.file_extension?.toUpperCase()}</p>
                   </div>
-                  <button onClick={() => removeMedia(asset.id)} className="p-1 text-slate-400 hover:text-red-500 rounded">
-                    <X className="w-4 h-4" />
-                  </button>
+                  {!readOnly && (
+                    <button onClick={() => removeMedia(asset.id)} className="p-1 text-slate-400 hover:text-red-500 rounded">
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>

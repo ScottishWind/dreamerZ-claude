@@ -35,6 +35,27 @@ content_router = APIRouter(prefix="/admin", tags=["content"], dependencies=[Depe
 supervisor_router = APIRouter(prefix="/admin", tags=["supervisor"], dependencies=[Depends(get_current_supervisor)])
 
 
+async def _ensure_lesson_editable(session: "AsyncSession", lesson: "Lesson") -> None:
+    """Raise 403 if a lesson belongs to a published course.
+
+    Edits to published courses are not allowed; users must create a draft
+    version first and modify the draft instead.
+    """
+    if not lesson or not lesson.module_id:
+        return
+    mod_result = await session.execute(select(Module).where(Module.id == lesson.module_id))
+    module = mod_result.scalars().first()
+    if not module or not module.course_id:
+        return
+    course_result = await session.execute(select(Course).where(Course.id == module.course_id))
+    course = course_result.scalars().first()
+    if course and course.status == "published":
+        raise HTTPException(
+            status_code=403,
+            detail="This lesson belongs to a published course and is read-only. Create a draft version to make changes.",
+        )
+
+
 # ── Pydantic Models ──────────────────────────────────────
 
 class CategoryCreate(BaseModel):
@@ -822,6 +843,12 @@ async def get_course(
         raise HTTPException(status_code=404, detail="Course not found")
     d = course.to_dict()
     d["id"] = course.slug
+    # Include draft_slug if the course has a draft version
+    if course.draft_version_id:
+        draft_result = await session.execute(select(Course).where(Course.id == course.draft_version_id))
+        draft = draft_result.scalars().first()
+        if draft:
+            d["draft_slug"] = draft.slug
     return d
 
 
@@ -859,21 +886,205 @@ async def update_course(
     return {"detail": f"Course '{course_id}' updated", **update.model_dump(exclude_none=True)}
 
 
+@content_router.post("/courses/{course_id}/create-draft")
+async def create_draft_version(
+    course_id: str,
+    current_user: dict = Depends(get_current_creator),
+    session: AsyncSession = Depends(get_db),
+):
+    """Create a draft version of a published course for editing."""
+    import uuid
+    import re
+
+    result = await session.execute(select(Course).where(Course.slug == course_id))
+    published = result.scalars().first()
+    if not published:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    if published.status != "published":
+        raise HTTPException(status_code=400, detail="Only published courses can have draft versions")
+
+    # Check if a draft already exists
+    if published.draft_version_id:
+        result = await session.execute(select(Course).where(Course.id == published.draft_version_id))
+        existing_draft = result.scalars().first()
+        if existing_draft:
+            return {"detail": "Draft version already exists", "draft_id": existing_draft.id, "draft_slug": existing_draft.slug}
+
+    # Create draft copy
+    base_slug = re.sub(r"[^a-z0-9]+", "-", f"{published.slug}-draft").strip("-")
+    draft_slug = f"{base_slug}-{uuid.uuid4().hex[:6]}"
+
+    draft = Course(
+        category_id=published.category_id,
+        slug=draft_slug,
+        name=published.name,
+        description=published.description,
+        tagline=published.tagline,
+        icon=published.icon,
+        theme_color=published.theme_color,
+        difficulty=published.difficulty,
+        total_xp=published.total_xp,
+        sort_order=published.sort_order,
+        status="draft",
+        available_languages=published.available_languages,
+        tags=published.tags,
+        blueprint_json=published.blueprint_json,
+        created_by=current_user.get("username", "admin"),
+    )
+    session.add(draft)
+    await session.flush()
+
+    # Link published course to draft
+    published.draft_version_id = draft.id
+
+    # Copy modules, lessons, content, quizzes
+    modules_result = await session.execute(
+        select(Module).where(Module.course_id == published.id).order_by(Module.sort_order)
+    )
+    modules = modules_result.scalars().all()
+
+    for module in modules:
+        module_slug = f"{module.slug}-draft-{uuid.uuid4().hex[:6]}"
+        draft_module = Module(
+            course_id=draft.id,
+            slug=module_slug,
+            title=module.title,
+            description=module.description,
+            sort_order=module.sort_order,
+            is_active=module.is_active,
+            status="draft",
+        )
+        session.add(draft_module)
+        await session.flush()
+
+        # Copy lessons
+        lessons_result = await session.execute(
+            select(Lesson).where(Lesson.module_id == module.id).order_by(Lesson.sort_order)
+        )
+        lessons = lessons_result.scalars().all()
+
+        for lesson in lessons:
+            lesson_slug = f"{lesson.slug}-draft-{uuid.uuid4().hex[:6]}"
+            draft_lesson = Lesson(
+                module_id=draft_module.id,
+                slug=lesson_slug,
+                title=lesson.title,
+                description=lesson.description,
+                sort_order=lesson.sort_order,
+                level=lesson.level,
+                estimated_minutes=lesson.estimated_minutes,
+                xp_reward=lesson.xp_reward,
+                week=lesson.week,
+                day=lesson.day,
+                is_weekly_test=lesson.is_weekly_test,
+                status="draft",
+            )
+            session.add(draft_lesson)
+            await session.flush()
+
+            # Copy lesson content
+            content_result = await session.execute(
+                select(LessonContent).where(LessonContent.lesson_id == lesson.id)
+            )
+            contents = content_result.scalars().all()
+            for content in contents:
+                draft_content = LessonContent(
+                    lesson_id=draft_lesson.id,
+                    language=content.language,
+                    explanation=content.explanation,
+                    explanation_format=content.explanation_format,
+                    example=content.example,
+                    activity=content.activity,
+                    bengali_tip=content.bengali_tip,
+                    micro_grammar=content.micro_grammar,
+                    speaking_task=content.speaking_task,
+                    vocab=content.vocab,
+                    dialogue=content.dialogue,
+                    sort_order=content.sort_order,
+                    translated_by=content.translated_by,
+                    status="draft",
+                )
+                session.add(draft_content)
+
+            # Copy quizzes
+            quiz_result = await session.execute(
+                select(Quiz).where(Quiz.lesson_id == lesson.id)
+            )
+            quizzes = quiz_result.scalars().all()
+            for quiz in quizzes:
+                draft_quiz = Quiz(
+                    lesson_id=draft_lesson.id,
+                    title=quiz.title,
+                    passing_score=quiz.passing_score,
+                    max_attempts=quiz.max_attempts,
+                    shuffle_questions=quiz.shuffle_questions,
+                    shuffle_options=quiz.shuffle_options,
+                    sort_order=quiz.sort_order,
+                    status="draft",
+                )
+                session.add(draft_quiz)
+                await session.flush()
+
+                # Copy quiz questions
+                questions_result = await session.execute(
+                    select(QuizQuestion).where(QuizQuestion.quiz_id == quiz.id)
+                )
+                questions = questions_result.scalars().all()
+                for question in questions:
+                    draft_question = QuizQuestion(
+                        quiz_id=draft_quiz.id,
+                        question_text=question.question_text,
+                        question_type=question.question_type,
+                        options=question.options,
+                        correct_answer=question.correct_answer,
+                        feedback=question.feedback,
+                        sort_order=question.sort_order,
+                    )
+                    session.add(draft_question)
+
+    await session.commit()
+    return {
+        "detail": f"Draft version created for course '{course_id}'",
+        "draft_id": draft.id,
+        "draft_slug": draft.slug,
+    }
+
+
 @content_router.delete("/courses/{course_id}")
 async def delete_course(
     course_id: str,
     session: AsyncSession = Depends(get_db),
 ):
-    """Cascade-delete a course and all its modules, lessons, content, quizzes."""
+    """Cascade-delete a course and all its modules, lessons, content, quizzes.
+
+    If this course is a draft version of a published course, also clear the
+    published course's `draft_version_id` reference so a fresh draft can be
+    created later.
+    """
     result = await session.execute(select(Course).where(Course.slug == course_id))
     course = result.scalars().first()
     if not course:
         raise HTTPException(status_code=404, detail="Course not found")
 
+    # If this is a draft, clear the parent's draft_version_id pointer
+    parent_slug: Optional[str] = None
+    if course.status == "draft":
+        parent_result = await session.execute(
+            select(Course).where(Course.draft_version_id == course.id)
+        )
+        parent = parent_result.scalars().first()
+        if parent:
+            parent.draft_version_id = None
+            parent_slug = parent.slug
+
     # ORM cascade handles modules -> lessons -> lesson_contents, quizzes, media, etc.
     await session.delete(course)
     await session.commit()
-    return {"detail": f"Course '{course_id}' and all content deleted"}
+    return {
+        "detail": f"Course '{course_id}' and all content deleted",
+        "parent_slug": parent_slug,
+    }
 
 
 @content_router.post("/courses/{course_id}/publish")
@@ -882,18 +1093,18 @@ async def publish_course(
     current_user: dict = Depends(get_current_creator),
     session: AsyncSession = Depends(get_db),
 ):
-    """Publish a draft course by flipping its status to 'published' and cascading to children."""
+    """Publish a draft course. If it's a draft version of a published course, copy to published and delete draft."""
     result = await session.execute(select(Course).where(Course.slug == course_id))
-    course = result.scalars().first()
-    if not course:
+    draft = result.scalars().first()
+    if not draft:
         raise HTTPException(status_code=404, detail="Course not found")
 
-    if course.status != "draft":
+    if draft.status != "draft":
         raise HTTPException(status_code=400, detail="Course is already published")
 
     # Validate: course must have at least one module and one lesson
     module_count_result = await session.execute(
-        select(func.count(Module.id)).where(Module.course_id == course.id)
+        select(func.count(Module.id)).where(Module.course_id == draft.id)
     )
     module_count = module_count_result.scalar_one()
     if module_count == 0:
@@ -902,51 +1113,192 @@ async def publish_course(
     lesson_count_result = await session.execute(
         select(func.count(Lesson.id))
         .join(Module, Lesson.module_id == Module.id)
-        .where(Module.course_id == course.id)
+        .where(Module.course_id == draft.id)
     )
     lesson_count = lesson_count_result.scalar_one()
     if lesson_count == 0:
         raise HTTPException(status_code=422, detail="Cannot publish a course with no lessons")
 
-    # Flip course status to published
-    course.status = "published"
-    course.updated_at = datetime.now(timezone.utc)
-
-    # Cascade status to modules
-    modules_result = await session.execute(
-        select(Module).where(Module.course_id == course.id)
+    # Check if this is a draft version of a published course
+    # Find any published course that references this draft as its draft_version_id
+    published_result = await session.execute(
+        select(Course).where(Course.draft_version_id == draft.id)
     )
-    modules = modules_result.scalars().all()
-    for module in modules:
-        module.status = "published"
-        module.updated_at = datetime.now(timezone.utc)
+    published = published_result.scalars().first()
 
-    # Cascade status to lessons
-    lessons_result = await session.execute(
-        select(Lesson).join(Module, Lesson.module_id == Module.id).where(Module.course_id == course.id)
-    )
-    lessons = lessons_result.scalars().all()
-    lesson_ids = []
-    for lesson in lessons:
-        lesson.status = "published"
-        lesson.updated_at = datetime.now(timezone.utc)
-        lesson_ids.append(lesson.id)
+    if published:
+        # This is a draft version - copy all data to published course
+        # Copy course-level fields
+        published.name = draft.name
+        published.description = draft.description
+        published.tagline = draft.tagline
+        published.icon = draft.icon
+        published.theme_color = draft.theme_color
+        published.difficulty = draft.difficulty
+        published.tags = draft.tags
+        published.updated_at = datetime.now(timezone.utc)
 
-    # Flip LessonContent and Quiz status for all lessons in this course
-    if lesson_ids:
-        await session.execute(
-            LessonContent.__table__.update()
-            .where(LessonContent.lesson_id.in_(lesson_ids))
-            .values(status="published", updated_at=datetime.now(timezone.utc))
+        # Delete existing modules/lessons from published course
+        existing_modules_result = await session.execute(
+            select(Module).where(Module.course_id == published.id)
         )
-        await session.execute(
-            Quiz.__table__.update()
-            .where(Quiz.lesson_id.in_(lesson_ids))
-            .values(status="published")
-        )
+        existing_modules = existing_modules_result.scalars().all()
+        for mod in existing_modules:
+            await session.delete(mod)
 
-    await session.commit()
-    return {"detail": f"Course '{course_id}' published successfully", "course_id": course_id, "status": "published"}
+        await session.flush()
+
+        # Copy modules from draft to published
+        draft_modules_result = await session.execute(
+            select(Module).where(Module.course_id == draft.id).order_by(Module.sort_order)
+        )
+        draft_modules = draft_modules_result.scalars().all()
+
+        for draft_module in draft_modules:
+            published_module = Module(
+                course_id=published.id,
+                slug=f"{draft_module.slug}-published",
+                title=draft_module.title,
+                description=draft_module.description,
+                sort_order=draft_module.sort_order,
+                is_active=draft_module.is_active,
+                status="published",
+            )
+            session.add(published_module)
+            await session.flush()
+
+            # Copy lessons
+            draft_lessons_result = await session.execute(
+                select(Lesson).where(Lesson.module_id == draft_module.id).order_by(Lesson.sort_order)
+            )
+            draft_lessons = draft_lessons_result.scalars().all()
+
+            for draft_lesson in draft_lessons:
+                published_lesson = Lesson(
+                    module_id=published_module.id,
+                    slug=f"{draft_lesson.slug}-published",
+                    title=draft_lesson.title,
+                    description=draft_lesson.description,
+                    sort_order=draft_lesson.sort_order,
+                    level=draft_lesson.level,
+                    estimated_minutes=draft_lesson.estimated_minutes,
+                    xp_reward=draft_lesson.xp_reward,
+                    week=draft_lesson.week,
+                    day=draft_lesson.day,
+                    is_weekly_test=draft_lesson.is_weekly_test,
+                    status="published",
+                )
+                session.add(published_lesson)
+                await session.flush()
+
+                # Copy lesson content
+                draft_content_result = await session.execute(
+                    select(LessonContent).where(LessonContent.lesson_id == draft_lesson.id)
+                )
+                draft_contents = draft_content_result.scalars().all()
+                for draft_content in draft_contents:
+                    published_content = LessonContent(
+                        lesson_id=published_lesson.id,
+                        language=draft_content.language,
+                        explanation=draft_content.explanation,
+                        explanation_format=draft_content.explanation_format,
+                        example=draft_content.example,
+                        activity=draft_content.activity,
+                        bengali_tip=draft_content.bengali_tip,
+                        micro_grammar=draft_content.micro_grammar,
+                        speaking_task=draft_content.speaking_task,
+                        vocab=draft_content.vocab,
+                        dialogue=draft_content.dialogue,
+                        sort_order=draft_content.sort_order,
+                        translated_by=draft_content.translated_by,
+                        status="published",
+                    )
+                    session.add(published_content)
+
+                # Copy quizzes
+                draft_quiz_result = await session.execute(
+                    select(Quiz).where(Quiz.lesson_id == draft_lesson.id)
+                )
+                draft_quizzes = draft_quiz_result.scalars().all()
+                for draft_quiz in draft_quizzes:
+                    published_quiz = Quiz(
+                        lesson_id=published_lesson.id,
+                        title=draft_quiz.title,
+                        passing_score=draft_quiz.passing_score,
+                        max_attempts=draft_quiz.max_attempts,
+                        shuffle_questions=draft_quiz.shuffle_questions,
+                        shuffle_options=draft_quiz.shuffle_options,
+                        sort_order=draft_quiz.sort_order,
+                        status="published",
+                    )
+                    session.add(published_quiz)
+                    await session.flush()
+
+                    # Copy quiz questions
+                    draft_questions_result = await session.execute(
+                        select(QuizQuestion).where(QuizQuestion.quiz_id == draft_quiz.id)
+                    )
+                    draft_questions = draft_questions_result.scalars().all()
+                    for draft_question in draft_questions:
+                        published_question = QuizQuestion(
+                            quiz_id=published_quiz.id,
+                            question_text=draft_question.question_text,
+                            question_type=draft_question.question_type,
+                            options=draft_question.options,
+                            correct_answer=draft_question.correct_answer,
+                            feedback=draft_question.feedback,
+                            sort_order=draft_question.sort_order,
+                        )
+                        session.add(published_question)
+
+        # Clear the draft_version_id reference
+        published.draft_version_id = None
+
+        # Delete the draft course
+        await session.delete(draft)
+
+        await session.commit()
+        return {"detail": f"Course updated and published successfully", "course_id": published.slug, "status": "published"}
+    else:
+        # Standalone draft - just flip status
+        draft.status = "published"
+        draft.updated_at = datetime.now(timezone.utc)
+
+        # Cascade status to modules
+        modules_result = await session.execute(
+            select(Module).where(Module.course_id == draft.id)
+        )
+        modules = modules_result.scalars().all()
+        for module in modules:
+            module.status = "published"
+            module.updated_at = datetime.now(timezone.utc)
+
+        # Cascade status to lessons
+        lessons_result = await session.execute(
+            select(Lesson).join(Module, Lesson.module_id == Module.id).where(Module.course_id == draft.id)
+        )
+        lessons = lessons_result.scalars().all()
+        lesson_ids = []
+        for lesson in lessons:
+            lesson.status = "published"
+            lesson.updated_at = datetime.now(timezone.utc)
+            lesson_ids.append(lesson.id)
+
+        # Flip LessonContent and Quiz status for all lessons in this course
+        if lesson_ids:
+            await session.execute(
+                LessonContent.__table__.update()
+                .where(LessonContent.lesson_id.in_(lesson_ids))
+                .values(status="published", updated_at=datetime.now(timezone.utc))
+            )
+            await session.execute(
+                Quiz.__table__.update()
+                .where(Quiz.lesson_id.in_(lesson_ids))
+                .values(status="published")
+            )
+
+        await session.commit()
+        return {"detail": f"Course '{course_id}' published successfully", "course_id": course_id, "status": "published"}
 
 
 @content_router.delete("/sections/{section_id}")
@@ -1330,6 +1682,7 @@ async def update_lesson_meta(
     lesson = result.scalars().first()
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
+    await _ensure_lesson_editable(session, lesson)
 
     update_data = {k: v for k, v in update.model_dump().items() if v is not None}
     if not update_data:
@@ -1379,6 +1732,7 @@ async def delete_lesson(
     lesson = result.scalars().first()
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
+    await _ensure_lesson_editable(session, lesson)
 
     await session.delete(lesson)
     await session.commit()
@@ -1515,6 +1869,7 @@ async def update_lesson_content(
     lesson = result.scalars().first()
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
+    await _ensure_lesson_editable(session, lesson)
 
     update_data = {k: v for k, v in update.model_dump().items() if v is not None}
     if not update_data:
@@ -1559,6 +1914,7 @@ async def update_lesson_quiz(
     lesson = result.scalars().first()
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found")
+    await _ensure_lesson_editable(session, lesson)
 
     quiz_result = await session.execute(select(Quiz).where(Quiz.lesson_id == lesson.id))
     quiz = quiz_result.scalars().first()
