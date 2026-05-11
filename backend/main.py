@@ -57,19 +57,23 @@ async def startup():
     reset_token = os.environ.get("DB_RESET", "").strip()
     drop_first = False
 
+    # Always log the comparison so the deploy log shows exactly why we did
+    # or didn't wipe. If wipes are happening repeatedly, this line tells
+    # you whether read_applied_reset_token is the failure point.
     if reset_token:
         applied = await read_applied_reset_token()
+        logger.warning(
+            "DB_RESET check: env_value=%r last_applied=%r",
+            reset_token, applied,
+        )
         if applied == reset_token:
             logger.info(
-                "DB_RESET=%r already applied; skipping wipe. "
-                "Change the value to trigger another reset.",
-                reset_token,
+                "DB_RESET already applied; skipping wipe. "
+                "Change the env value to trigger another reset.",
             )
         else:
             logger.warning(
-                "DB_RESET=%r differs from last applied (%r) — "
-                "dropping and recreating all tables.",
-                reset_token, applied,
+                "DB_RESET differs from last applied — dropping and recreating all tables.",
             )
             drop_first = True
 
@@ -77,7 +81,16 @@ async def startup():
 
     if drop_first:
         # Record the token only after the wipe + recreate succeeds.
-        await write_applied_reset_token(reset_token)
+        # If this fails (permissions, etc.) the exception now propagates
+        # so the deploy fails loudly instead of silently re-wiping next boot.
+        try:
+            await write_applied_reset_token(reset_token)
+        except Exception:
+            logger.exception(
+                "FAILED to record applied DB_RESET token. The next cold "
+                "start WILL wipe data again. Investigate this immediately."
+            )
+            raise
 
     await seed_data()
     logger.info("Database tables ensured and seed data refreshed.")

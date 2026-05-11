@@ -67,6 +67,13 @@ CATEGORIES_DATA = [
 
 # ── Database Initialization ──────────────────────────────
 
+# Reset metadata lives in this dedicated schema so DROP SCHEMA public
+# CASCADE leaves it untouched. Without this, the wipe also wipes the
+# applied-token record and the next cold start re-fires the wipe.
+_META_SCHEMA = "_meta"
+_META_TABLE = "schema_state"
+
+
 async def init_db(drop_first: bool = False):
     """Create all tables defined in Base.metadata.
 
@@ -78,21 +85,34 @@ async def init_db(drop_first: bool = False):
                     breaks when tables outside the metadata or new tables
                     leave the dependency graph un-resolvable). On SQLite,
                     falls back to metadata.drop_all which is safe.
+                    The `_meta` schema (which stores the applied reset
+                    token) is deliberately not dropped.
     """
     is_postgres = DATABASE_URL.startswith("postgresql")
 
     async with engine.begin() as conn:
         if drop_first:
             if is_postgres:
-                # Nuke and recreate the schema. Cleaner than drop_all when
-                # FK direction makes ordered drops impossible, and also
-                # removes any orphan tables that drifted away from the model.
+                # Nuke and recreate `public`. The wipe never touches `_meta`,
+                # which is how we remember a wipe has already happened.
                 await conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
                 await conn.execute(text("CREATE SCHEMA public"))
                 # Restore default search path / privileges that DROP cleared.
                 await conn.execute(text("GRANT ALL ON SCHEMA public TO public"))
             else:
                 await conn.run_sync(Base.metadata.drop_all)
+
+        if is_postgres:
+            # Ensure the meta schema + token table always exist. Cheap on
+            # subsequent boots (IF NOT EXISTS), survives schema wipes.
+            await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{_META_SCHEMA}"'))
+            await conn.execute(text(
+                f'CREATE TABLE IF NOT EXISTS "{_META_SCHEMA}"."{_META_TABLE}" ('
+                f'  key VARCHAR(64) PRIMARY KEY,'
+                f'  value TEXT'
+                f')'
+            ))
+
         await conn.run_sync(Base.metadata.create_all)
 
 
@@ -107,66 +127,68 @@ async def get_db():
 
 # ── DB_RESET idempotency ──────────────────────────────────
 #
-# The applied reset token is persisted as a Postgres COMMENT on the
-# database itself, which sits at a higher level than the `public`
-# schema and therefore survives `DROP SCHEMA public CASCADE`. Comment
-# text is plain JSON so future fields can piggy-back on the same slot.
+# Applied reset tokens are persisted in `_meta.schema_state`, a tiny
+# (key, value) table that lives outside the `public` schema. Because
+# the wipe only touches `public`, the token row survives the wipe and
+# blocks repeat wipes on subsequent cold starts.
 
 _IS_POSTGRES = DATABASE_URL.startswith("postgresql")
+_RESET_TOKEN_KEY = "applied_reset_token"
 
 
 async def read_applied_reset_token() -> Optional[str]:
     """Return the reset token recorded by the previous successful wipe.
 
-    Returns None on SQLite, on first boot, or when the comment is empty/
-    unparseable. Never raises — any read failure is treated as 'no token
-    applied yet'.
+    Returns None on SQLite, on first boot, or when the row hasn't been
+    written yet. Never raises — any read failure is treated as
+    'no token applied yet'.
     """
     if not _IS_POSTGRES:
         return None
     try:
         async with engine.connect() as conn:
             result = await conn.execute(text(
-                "SELECT obj_description(d.oid) FROM pg_database d "
-                "WHERE d.datname = current_database()"
-            ))
+                f'SELECT value FROM "{_META_SCHEMA}"."{_META_TABLE}" '
+                f'WHERE key = :k'
+            ), {"k": _RESET_TOKEN_KEY})
             row = result.first()
-            if not row or not row[0]:
-                return None
-            data = json.loads(row[0])
-            if isinstance(data, dict):
-                return data.get("reset_token")
-            return None
+            return row[0] if row else None
     except Exception as exc:  # noqa: BLE001
-        logging.warning("Could not read reset token from DB comment: %s", exc)
+        logging.warning("Could not read reset token from %s.%s: %s",
+                        _META_SCHEMA, _META_TABLE, exc)
         return None
 
 
 async def write_applied_reset_token(token: str) -> None:
     """Persist the reset token that's just been applied.
 
-    Stored as JSON inside a COMMENT ON DATABASE so it survives schema
-    drops. No-op outside Postgres.
+    Upserts into `_meta.schema_state`. Stored outside the `public`
+    schema so the next wipe won't erase it. No-op outside Postgres.
+    Raises if the write fails — we want the caller to see this rather
+    than silently swallowing a failed write (which is how the wipe
+    used to repeat on every cold start).
     """
     if not _IS_POSTGRES:
         return
-    try:
-        payload = json.dumps({"reset_token": token})
-        async with engine.begin() as conn:
-            db_name_row = await conn.execute(text("SELECT current_database()"))
-            db_name = db_name_row.scalar()
-            if not db_name:
-                logging.warning("Could not determine current database name; "
-                                "skipping reset-token write.")
-                return
-            # `current_database()` only returns trusted server-controlled
-            # identifiers, so interpolating it into the DDL is safe.
-            await conn.execute(
-                text(f'COMMENT ON DATABASE "{db_name}" IS :payload'),
-                {"payload": payload},
-            )
-    except Exception as exc:  # noqa: BLE001
-        logging.error("Failed to record applied reset token: %s", exc)
+    async with engine.begin() as conn:
+        # Make sure the table exists. init_db creates it, but this guards
+        # against being called out-of-order (e.g. from a script).
+        await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{_META_SCHEMA}"'))
+        await conn.execute(text(
+            f'CREATE TABLE IF NOT EXISTS "{_META_SCHEMA}"."{_META_TABLE}" ('
+            f'  key VARCHAR(64) PRIMARY KEY,'
+            f'  value TEXT'
+            f')'
+        ))
+        # Upsert by primary key
+        await conn.execute(text(
+            f'INSERT INTO "{_META_SCHEMA}"."{_META_TABLE}" (key, value) '
+            f'VALUES (:k, :v) '
+            f'ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value'
+        ), {"k": _RESET_TOKEN_KEY, "v": token})
+        # Log so we can see in deploy logs that the write actually went through
+        logging.warning("Recorded applied DB_RESET token=%r in %s.%s",
+                        token, _META_SCHEMA, _META_TABLE)
 
 
 # ── Helpers ───────────────────────────────────────────────
