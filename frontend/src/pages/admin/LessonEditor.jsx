@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { QuizEditor } from './QuizEditor';
 import { formatErrorDetail } from '../../lib/utils';
+import { useAuth } from '../../hooks/useAuth';
 
 const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
 
@@ -37,7 +38,7 @@ const adminUpload = async (path, token, formData) => {
   return res.json();
 };
 
-const TABS = [
+const ALL_TABS = [
   { id: 'content', label: 'Content', icon: FileText },
   { id: 'quiz', label: 'Quiz', icon: HelpCircle },
   { id: 'media', label: 'Media', icon: Paperclip },
@@ -45,11 +46,20 @@ const TABS = [
 ];
 
 export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted }) => {
+  const { user, isAdmin } = useAuth();
+  const canUseAI = isAdmin() || !!user?.aiGenerationEnabled;
+  const TABS = canUseAI ? ALL_TABS : ALL_TABS.filter(t => t.id !== 'ai');
+
   const [lesson, setLesson] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [activeTab, setActiveTab] = useState('content');
+
+  // If AI access is revoked while the AI tab is active, switch to Content
+  useEffect(() => {
+    if (!canUseAI && activeTab === 'ai') setActiveTab('content');
+  }, [canUseAI, activeTab]);
 
   // Content edit state
   const [contentForm, setContentForm] = useState({
@@ -402,7 +412,7 @@ export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted
       )}
 
       {/* AI Actions tab */}
-      {activeTab === 'ai' && (
+      {activeTab === 'ai' && canUseAI && (
         <div className="space-y-4">
           <div className="bg-gradient-to-br from-violet-50 to-primary/5 border border-violet-200 rounded-xl p-4">
             <div className="flex items-center gap-2 mb-2">

@@ -23,7 +23,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from pydantic import BaseModel, Field
 
-from services.auth_service import get_current_admin
+from services.auth_service import get_current_admin, require_ai_generation_enabled
 from services import document_parser, course_generator
 
 router = APIRouter(
@@ -76,29 +76,24 @@ class ValidationUpdate(BaseModel):
 
 # ── 1. Parse uploaded document ────────────────────────────
 @router.post("/parse")
-async def parse_upload(file: UploadFile = File(...)):
+async def parse_upload(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(require_ai_generation_enabled),
+):
     """Upload a PDF/DOCX/TXT file and return the parsed plain text."""
     data = await file.read()
-    if not data:
-        raise HTTPException(status_code=400, detail="Uploaded file is empty")
-
     try:
-        parsed = document_parser.parse_document(
-            data=data,
-            filename=file.filename or "upload",
-            content_type=file.content_type,
-        )
+        parsed = await course_generator.parse_document(data, file.filename)
+        return {
+            "filename": file.filename,
+            "content_type": file.content_type,
+            **parsed,
+        }
     except document_parser.UnsupportedFormatError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:  # noqa: BLE001
         logger.exception("Failed to parse uploaded document")
         raise HTTPException(status_code=500, detail=f"Failed to parse document: {exc}")
-
-    return {
-        "filename": file.filename,
-        "content_type": file.content_type,
-        **parsed,
-    }
 
 
 # ── 2. Generate blueprint ─────────────────────────────────
@@ -106,7 +101,7 @@ async def parse_upload(file: UploadFile = File(...)):
 async def create_blueprint(
     request: Request,
     payload: BlueprintRequest,
-    current_admin: dict = Depends(get_current_admin),
+    current_user: dict = Depends(require_ai_generation_enabled),
 ):
     """Run Claude to produce a course blueprint, then persist it as a draft Course."""
     try:
@@ -144,7 +139,11 @@ async def create_blueprint(
 
 # ── 3. Generate a single lesson ───────────────────────────
 @router.post("/drafts/{draft_id}/lesson")
-async def generate_lesson(draft_id: int, payload: LessonRequest):
+async def generate_lesson(
+    draft_id: int,
+    payload: LessonRequest,
+    current_user: dict = Depends(require_ai_generation_enabled),
+):
     draft = await course_generator.get_draft(draft_id)
     if not draft:
         raise HTTPException(status_code=404, detail="Draft not found")
@@ -194,7 +193,11 @@ async def generate_lesson(draft_id: int, payload: LessonRequest):
 
 # ── 4. Bulk generate all remaining lessons ────────────────
 @router.post("/drafts/{draft_id}/generate-all")
-async def generate_all_lessons(draft_id: int, run_critique: bool = False):
+async def generate_all_lessons(
+    draft_id: int,
+    run_critique: bool = False,
+    current_user: dict = Depends(require_ai_generation_enabled),
+):
     draft = await course_generator.get_draft(draft_id)
     if not draft:
         raise HTTPException(status_code=404, detail="Draft not found")

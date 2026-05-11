@@ -56,6 +56,10 @@ export const CourseDetail = ({ courseId, token, onBack, onCourseDeleted }) => {
   // Delete confirmations
   const [confirmDelete, setConfirmDelete] = useState(null); // { type, id }
 
+  // Publishing state
+  const [publishing, setPublishing] = useState(false);
+  const [publishedOverlay, setPublishedOverlay] = useState(false);
+
   const showSuccess = (msg) => {
     setSuccess(msg);
     setTimeout(() => setSuccess(''), 3000);
@@ -225,6 +229,29 @@ export const CourseDetail = ({ courseId, token, onBack, onCourseDeleted }) => {
     }
   };
 
+  // ── Publish draft course ──
+  const publishCourse = async () => {
+    if (totalLessons === 0) {
+      setError('Cannot publish a course with no lessons');
+      return;
+    }
+    setPublishing(true);
+    setError('');
+    try {
+      await adminFetch(`/courses/${courseId}/publish`, token, { method: 'POST' });
+      setPublishedOverlay(true);
+      // Show overlay briefly, then return to the course manager home (list view).
+      setTimeout(() => {
+        setPublishedOverlay(false);
+        onBack?.();
+      }, 1500);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setPublishing(false);
+    }
+  };
+
   // ── Learner preview data (fetch the public course API with nested sections) ──
   const [learnerCourse, setLearnerCourse] = useState(null);
   const loadLearnerPreview = useCallback(async () => {
@@ -264,7 +291,32 @@ export const CourseDetail = ({ courseId, token, onBack, onCourseDeleted }) => {
   const totalLessons = Object.values(lessonsBySection).reduce((sum, arr) => sum + arr.length, 0);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 relative">
+      {/* Published overlay */}
+      {publishedOverlay && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl px-8 py-6 flex flex-col items-center gap-3 max-w-sm">
+            <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center">
+              <CheckCircle2 className="w-8 h-8 text-emerald-600" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-900">Course Published!</h3>
+            <p className="text-sm text-slate-600 text-center">
+              Your course is now live. Redirecting to the course list...
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Draft banner */}
+      {course.status === 'draft' && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 flex items-center gap-3">
+          <Info className="w-4 h-4 text-amber-600 flex-shrink-0" />
+          <span className="text-xs text-amber-800 font-medium">
+            This course is in <span className="font-bold">draft</span> status. It will not be visible to learners until published.
+          </span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-start justify-between gap-4 bg-white rounded-xl border border-slate-200 p-4">
         <div className="flex items-start gap-3 flex-1 min-w-0">
@@ -279,6 +331,7 @@ export const CourseDetail = ({ courseId, token, onBack, onCourseDeleted }) => {
             <h1 className="text-lg font-bold text-slate-900 truncate">{course.name}</h1>
             <p className="text-xs text-slate-500 mt-0.5">
               {course.category_id} · {sections.length} modules · {totalLessons} lessons
+              {course.status === 'draft' && <span className="ml-2 bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded text-[10px] font-medium">draft</span>}
             </p>
           </div>
         </div>
@@ -309,6 +362,27 @@ export const CourseDetail = ({ courseId, token, onBack, onCourseDeleted }) => {
               Learner
             </button>
           </div>
+
+          {/* Publish button for draft courses */}
+          {course.status === 'draft' && (
+            <button
+              onClick={publishCourse}
+              disabled={publishing || totalLessons === 0}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {publishing ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  Publishing...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Publish
+                </>
+              )}
+            </button>
+          )}
 
           {/* Delete course */}
           {confirmDelete?.type === 'course' ? (

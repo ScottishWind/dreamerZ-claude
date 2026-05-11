@@ -261,26 +261,142 @@ class DreamerZAPITester:
         """Test CORS headers are present"""
         try:
             response = self.session.options(f"{self.base_url}/")
-            
+
             # Check for CORS headers
             cors_headers = [
                 'access-control-allow-origin',
                 'access-control-allow-methods',
                 'access-control-allow-headers'
             ]
-            
+
             has_cors = any(header in response.headers for header in cors_headers)
-            
+
             if has_cors:
                 details = "CORS headers present"
             else:
                 details = "CORS headers missing"
-            
+
             self.log_test("CORS Configuration", has_cors, details)
             return has_cors
-            
+
         except Exception as e:
             self.log_test("CORS Configuration", False, str(e))
+            return False
+
+    def test_manual_course_create_and_publish(self) -> bool:
+        """Test manual course creation and publishing endpoints"""
+        try:
+            print("\n🔄 Testing manual course creation and publishing...")
+
+            # First, authenticate to get a token
+            auth_data = {
+                "email": "admin@dreamerz.com",  # Using admin email from config
+                "password": "test_admin_password"  # This may need to match your test setup
+            }
+
+            auth_response = self.session.post(f"{self.base_url}/auth/login", json=auth_data)
+            if auth_response.status_code != 200:
+                self.log_test("Manual Course: Auth", False, f"Auth failed with status {auth_response.status_code}")
+                return False
+
+            token = auth_response.json().get("access_token")
+            if not token:
+                self.log_test("Manual Course: Auth", False, "No token in response")
+                return False
+
+            # Set auth header for subsequent requests
+            auth_session = requests.Session()
+            auth_session.headers.update({
+                'Content-Type': 'application/json',
+                'Authorization': f'Bearer {token}',
+                'User-Agent': 'DreamerZ-Test-Suite/1.0'
+            })
+
+            # Create a test category first
+            category_data = {
+                "name": f"test-category-{int(time.time())}",
+                "description": "Test category for manual course creation"
+            }
+            category_response = auth_session.post(f"{self.base_url}/admin/categories", json=category_data)
+            if category_response.status_code != 200:
+                self.log_test("Manual Course: Create Category", False, f"Failed with status {category_response.status_code}")
+                return False
+
+            category = category_response.json()
+            category_id = category.get("id")
+
+            # Test 1: Create a draft course
+            course_data = {
+                "name": f"Test Manual Course {int(time.time())}",
+                "description": "Test course created via manual creation flow",
+                "category_id": category_id,
+                "difficulty": "beginner"
+            }
+
+            course_response = auth_session.post(f"{self.base_url}/admin/courses", json=course_data)
+            if course_response.status_code != 200:
+                self.log_test("Manual Course: Create Draft", False, f"Failed with status {course_response.status_code}")
+                return False
+
+            course = course_response.json()
+            course_slug = course.get("id")
+            self.log_test("Manual Course: Create Draft", True, f"Created draft course: {course_slug}")
+
+            # Test 2: Try to publish empty course (should fail with 422)
+            publish_response = auth_session.post(f"{self.base_url}/admin/courses/{course_slug}/publish")
+            if publish_response.status_code == 422:
+                self.log_test("Manual Course: Publish Empty (Expected Fail)", True, "Correctly rejected empty course")
+            else:
+                self.log_test("Manual Course: Publish Empty (Expected Fail)", False,
+                             f"Expected 422, got {publish_response.status_code}")
+                # Continue anyway to clean up
+
+            # Test 3: Add a module to the course
+            module_data = {"title": "Test Module"}
+            module_response = auth_session.post(f"{self.base_url}/admin/courses/{course_slug}/sections", json=module_data)
+            if module_response.status_code != 200:
+                self.log_test("Manual Course: Add Module", False, f"Failed with status {module_response.status_code}")
+                # Still try to clean up
+                auth_session.delete(f"{self.base_url}/admin/courses/{course_slug}")
+                return False
+
+            module = module_response.json()
+            module_id = module.get("id")
+            self.log_test("Manual Course: Add Module", True, f"Created module: {module_id}")
+
+            # Test 4: Add a lesson to the module
+            lesson_data = {"title": "Test Lesson"}
+            lesson_response = auth_session.post(f"{self.base_url}/admin/sections/{module_id}/lessons", json=lesson_data)
+            if lesson_response.status_code != 200:
+                self.log_test("Manual Course: Add Lesson", False, f"Failed with status {lesson_response.status_code}")
+                # Clean up
+                auth_session.delete(f"{self.base_url}/admin/courses/{course_slug}")
+                return False
+
+            lesson = lesson_response.json()
+            lesson_id = lesson.get("id")
+            self.log_test("Manual Course: Add Lesson", True, f"Created lesson: {lesson_id}")
+
+            # Test 5: Publish the course with content (should succeed)
+            publish_response = auth_session.post(f"{self.base_url}/admin/courses/{course_slug}/publish")
+            if publish_response.status_code == 200:
+                self.log_test("Manual Course: Publish with Content", True, "Successfully published course")
+            else:
+                self.log_test("Manual Course: Publish with Content", False,
+                             f"Failed with status {publish_response.status_code}")
+                # Clean up anyway
+
+            # Cleanup: Delete the test course
+            delete_response = auth_session.delete(f"{self.base_url}/admin/courses/{course_slug}")
+            if delete_response.status_code == 200:
+                self.log_test("Manual Course: Cleanup", True, "Deleted test course")
+            else:
+                self.log_test("Manual Course: Cleanup", False, f"Failed to delete with status {delete_response.status_code}")
+
+            return True
+
+        except Exception as e:
+            self.log_test("Manual Course Creation/Publish", False, str(e))
             return False
 
     def run_all_tests(self) -> Dict[str, Any]:
@@ -300,6 +416,7 @@ class DreamerZAPITester:
             self.test_ai_prompt_lab_modes,
             self.test_ai_safety_filters,
             self.test_cors_headers,
+            self.test_manual_course_create_and_publish,
             self.test_rate_limiting,  # Run this last as it may affect other tests
         ]
         

@@ -8,8 +8,10 @@ API response shapes kept compatible with the frontend:
 
 from typing import Optional
 
+import pathlib
+
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -564,7 +566,7 @@ async def get_content_tools_by_category(
 
 @router.get("/media/{asset_id}")
 async def get_media(asset_id: str, session: AsyncSession = Depends(get_db)):
-    """Redirect to the Cloudinary URL for the given media asset."""
+    """Serve the media asset. Redirects to Cloudinary URL or serves local file."""
     try:
         asset_pk = int(asset_id)
     except ValueError:
@@ -577,4 +579,17 @@ async def get_media(asset_id: str, session: AsyncSession = Depends(get_db)):
     if not asset:
         raise HTTPException(status_code=404, detail="Media asset not found")
 
-    return RedirectResponse(url=asset.cloudinary_url)
+    url = asset.cloudinary_url or ""
+    if url.startswith("http"):
+        return RedirectResponse(url=url)
+
+    # Local file: serve directly from disk
+    uploads_root = pathlib.Path(__file__).resolve().parent.parent
+    local_path = uploads_root / url
+    if not local_path.exists():
+        raise HTTPException(status_code=404, detail="Media file not found on disk")
+    return FileResponse(
+        path=str(local_path),
+        media_type=asset.mime_type or "application/octet-stream",
+        filename=asset.original_filename,
+    )

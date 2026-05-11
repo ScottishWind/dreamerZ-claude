@@ -21,7 +21,7 @@ from models.sql_models import (
     MediaAsset, Category, PricingPlan, FAQ, StudentCourseEnrollment, SupervisorAssignment,
 )
 from models.user import AdminUserResponse, RoleUpdate, AIFeatureUpdate
-from services.auth_service import get_current_admin, get_current_creator, require_ai_generation_enabled, get_current_supervisor, is_admin as is_admin_user
+from services.auth_service import get_current_admin, get_current_creator, get_current_supervisor, is_admin as is_admin_user, require_ai_generation_enabled
 from services import media_service
 from services import translation_service
 
@@ -40,6 +40,16 @@ supervisor_router = APIRouter(prefix="/admin", tags=["supervisor"], dependencies
 class CategoryCreate(BaseModel):
     name: str
     description: Optional[str] = None
+
+
+class CourseCreate(BaseModel):
+    name: str
+    description: str
+    # Accept either the integer primary key or the slug string
+    category_id: int | str
+    difficulty: Optional[str] = "beginner"
+    tags: Optional[list[str]] = None
+    passing_score: Optional[int] = 70
 
 
 class CourseUpdate(BaseModel):
@@ -94,7 +104,7 @@ class QuizQuestionPayload(BaseModel):
     correctAnswer: Optional[object] = None
     correctAnswers: Optional[list[int]] = None
     explanation: Optional[str] = ""
-    image_asset_id: Optional[str] = None
+    image_asset_id: Optional[int | str] = None
     image_url: Optional[str] = None
 
 
@@ -106,9 +116,19 @@ class QuizUpdate(BaseModel):
 
 class LessonCreatePayload(BaseModel):
     title: str
+    description: Optional[str] = None
     level: Optional[str] = "beginner"
     estimated_minutes: Optional[int] = 10
-    description: Optional[str] = ""
+
+
+class SectionCreatePayload(BaseModel):
+    title: str
+    description: Optional[str] = None
+
+
+class SectionUpdatePayload(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
 
 
 class LessonContentUpdatePayload(BaseModel):
@@ -709,6 +729,56 @@ async def update_tool_module(
 # LMS — COURSES
 # ══════════════════════════════════════════════════════════
 
+@content_router.post("/courses")
+async def create_course(
+    payload: CourseCreate,
+    current_user: dict = Depends(get_current_creator),
+    session: AsyncSession = Depends(get_db),
+):
+    """Create a new course in draft status (manual course creation flow)."""
+    import uuid
+    import re
+
+    # Validate category exists (accept either int id or slug string)
+    cat_lookup = payload.category_id
+    if isinstance(cat_lookup, int) or (isinstance(cat_lookup, str) and cat_lookup.isdigit()):
+        cat_stmt = select(Category).where(Category.id == int(cat_lookup))
+    else:
+        cat_stmt = select(Category).where(Category.slug == cat_lookup)
+    cat_result = await session.execute(cat_stmt)
+    category = cat_result.scalars().first()
+    if not category:
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    # Generate slug from name
+    base_slug = re.sub(r"[^a-z0-9]+", "-", payload.name.lower()).strip("-") or f"course-{uuid.uuid4().hex[:8]}"
+    slug = base_slug
+    # Handle slug collision by appending random suffix
+    existing = await session.execute(select(Course).where(Course.slug == slug))
+    if existing.scalars().first():
+        slug = f"{base_slug}-{uuid.uuid4().hex[:6]}"
+
+    course = Course(
+        category_id=category.id,
+        slug=slug,
+        name=payload.name,
+        description=payload.description,
+        difficulty=payload.difficulty or "beginner",
+        status="draft",
+        available_languages=["en"],
+        tags={"tags": payload.tags} if payload.tags else None,
+        created_by=current_user.get("username"),
+    )
+    session.add(course)
+    await session.commit()
+    await session.refresh(course)
+
+    # Return in same shape as GET /api/admin/courses/{id}
+    d = course.to_dict()
+    d["id"] = course.slug
+    return d
+
+
 @content_router.get("/courses")
 async def list_courses(
     status: Optional[str] = None,
@@ -806,6 +876,79 @@ async def delete_course(
     return {"detail": f"Course '{course_id}' and all content deleted"}
 
 
+@content_router.post("/courses/{course_id}/publish")
+async def publish_course(
+    course_id: str,
+    current_user: dict = Depends(get_current_creator),
+    session: AsyncSession = Depends(get_db),
+):
+    """Publish a draft course by flipping its status to 'published' and cascading to children."""
+    result = await session.execute(select(Course).where(Course.slug == course_id))
+    course = result.scalars().first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    if course.status != "draft":
+        raise HTTPException(status_code=400, detail="Course is already published")
+
+    # Validate: course must have at least one module and one lesson
+    module_count_result = await session.execute(
+        select(func.count(Module.id)).where(Module.course_id == course.id)
+    )
+    module_count = module_count_result.scalar_one()
+    if module_count == 0:
+        raise HTTPException(status_code=422, detail="Cannot publish a course with no modules")
+
+    lesson_count_result = await session.execute(
+        select(func.count(Lesson.id))
+        .join(Module, Lesson.module_id == Module.id)
+        .where(Module.course_id == course.id)
+    )
+    lesson_count = lesson_count_result.scalar_one()
+    if lesson_count == 0:
+        raise HTTPException(status_code=422, detail="Cannot publish a course with no lessons")
+
+    # Flip course status to published
+    course.status = "published"
+    course.updated_at = datetime.now(timezone.utc)
+
+    # Cascade status to modules
+    modules_result = await session.execute(
+        select(Module).where(Module.course_id == course.id)
+    )
+    modules = modules_result.scalars().all()
+    for module in modules:
+        module.status = "published"
+        module.updated_at = datetime.now(timezone.utc)
+
+    # Cascade status to lessons
+    lessons_result = await session.execute(
+        select(Lesson).join(Module, Lesson.module_id == Module.id).where(Module.course_id == course.id)
+    )
+    lessons = lessons_result.scalars().all()
+    lesson_ids = []
+    for lesson in lessons:
+        lesson.status = "published"
+        lesson.updated_at = datetime.now(timezone.utc)
+        lesson_ids.append(lesson.id)
+
+    # Flip LessonContent and Quiz status for all lessons in this course
+    if lesson_ids:
+        await session.execute(
+            LessonContent.__table__.update()
+            .where(LessonContent.lesson_id.in_(lesson_ids))
+            .values(status="published", updated_at=datetime.now(timezone.utc))
+        )
+        await session.execute(
+            Quiz.__table__.update()
+            .where(Quiz.lesson_id.in_(lesson_ids))
+            .values(status="published")
+        )
+
+    await session.commit()
+    return {"detail": f"Course '{course_id}' published successfully", "course_id": course_id, "status": "published"}
+
+
 @content_router.delete("/sections/{section_id}")
 async def delete_section(
     section_id: str,
@@ -828,6 +971,74 @@ async def delete_section(
 # ══════════════════════════════════════════════════════════
 # LMS — LESSONS (Lesson model in SQL)
 # ══════════════════════════════════════════════════════════
+
+@content_router.post("/courses/{course_id}/sections")
+async def create_section(
+    course_id: str,
+    payload: SectionCreatePayload,
+    session: AsyncSession = Depends(get_db),
+):
+    """Create a new 'section' (Module) under a course."""
+    import uuid
+
+    result = await session.execute(select(Course).where(Course.slug == course_id))
+    course = result.scalars().first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    count_result = await session.execute(
+        select(func.count(Module.id)).where(Module.course_id == course.id)
+    )
+    sort_order = count_result.scalar_one() + 1
+
+    base_slug = re.sub(r"[^a-z0-9]+", "-", payload.title.lower()).strip("-") or "module"
+    slug = f"{base_slug}-{uuid.uuid4().hex[:6]}"
+
+    module = Module(
+        course_id=course.id,
+        slug=slug,
+        title=payload.title,
+        description=payload.description or "",
+        sort_order=sort_order,
+        status="draft" if course.status == "draft" else "published",
+    )
+    session.add(module)
+    await session.commit()
+    await session.refresh(module)
+
+    return {
+        "id": module.slug,
+        "course_id": course_id,
+        "title": module.title,
+        "description": module.description or "",
+        "sort_order": module.sort_order,
+        "status": module.status,
+    }
+
+
+@content_router.put("/sections/{section_id}")
+async def update_section(
+    section_id: str,
+    payload: SectionUpdatePayload,
+    session: AsyncSession = Depends(get_db),
+):
+    """Rename or update a 'section' (Module)."""
+    result = await session.execute(select(Module).where(Module.slug == section_id))
+    module = result.scalars().first()
+    if not module:
+        raise HTTPException(status_code=404, detail="Section not found")
+
+    update_data = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    for k, v in update_data.items():
+        setattr(module, k, v)
+    module.updated_at = datetime.now(timezone.utc)
+
+    await session.commit()
+    return {"detail": f"Section '{section_id}' updated", **update_data}
+
 
 @content_router.get("/courses/{course_id}/sections")
 async def list_sections(
@@ -1487,7 +1698,7 @@ async def upload_media(
     lesson_slug: Optional[str] = Form(None),
     section_slug: Optional[str] = Form(None),
     tags: Optional[str] = Form(None),
-    current_admin: dict = Depends(get_current_admin),
+    current_user: dict = Depends(get_current_creator),
     session: AsyncSession = Depends(get_db),
 ):
     """Upload a media file. Optionally attach to a lesson."""
@@ -1511,10 +1722,11 @@ async def upload_media(
         file_data=file_data,
         filename=file.filename,
         content_type=file.content_type,
-        uploaded_by=current_admin.get("username", "admin"),
+        uploaded_by=current_user.get("username", "admin"),
         lesson_id=lesson_id,
         tags=tag_list,
     )
+    await session.commit()
     return asset
 
 
@@ -1566,7 +1778,21 @@ async def attach_media(
     )
     if not success:
         raise HTTPException(status_code=404, detail="Media asset not found")
+    await session.commit()
     return {"detail": f"Asset {asset_id} attached to lesson '{body.lesson_id}'"}
+
+
+@content_router.delete("/media/{asset_id}")
+async def delete_media(
+    asset_id: int,
+    session: AsyncSession = Depends(get_db),
+):
+    """Delete a media asset (removes from storage and DB)."""
+    success = await media_service.delete_file(session=session, asset_id=asset_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Media asset not found")
+    await session.commit()
+    return {"detail": f"Asset {asset_id} deleted"}
 
 
 # ══════════════════════════════════════════════════════════
