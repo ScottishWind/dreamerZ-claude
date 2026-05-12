@@ -60,15 +60,11 @@ function App() {
                     } 
                   />
 
-                  {/* Parent dashboard routes */}
-                  <Route 
-                    path="/parent" 
-                    element={
-                      <RequireRole roles={["supervisor", "admin"]}>
-                        <ParentDashboard />
-                      </RequireRole>
-                    } 
-                  />
+                  {/* Parent dashboard routes — /parent and /parents both
+                      go through <Parents />, which internally renders the
+                      live dashboard for supervisors/admins and the marketing
+                      copy for everyone else. Same component, two URLs. */}
+                  <Route path="/parent" element={<Parents />} />
                   <Route 
                     path="/parent/students/:studentUserId" 
                     element={
