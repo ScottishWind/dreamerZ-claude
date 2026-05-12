@@ -7,12 +7,13 @@ API response shapes kept compatible with the frontend:
 """
 
 from typing import Optional
+from datetime import datetime, timedelta, timezone
 
 import pathlib
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import RedirectResponse, FileResponse
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -27,6 +28,9 @@ from models.sql_models import (
     Quiz,
     QuizQuestion,
     MediaAsset,
+    User,
+    StudentCourseEnrollment,
+    StudentLessonProgress,
 )
 from utils.sanitizers import sanitize_id
 
@@ -508,6 +512,105 @@ async def get_content_modules(
 # ---------------------------------------------------------------------------
 # 6. GET /content/categories — list categories
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Landing-stats — aggregate live metrics for the marketing landing page.
+# Single round-trip so the homepage stays fast.
+# ---------------------------------------------------------------------------
+
+@router.get("/landing-stats")
+async def landing_stats(
+    response: Response,
+    session: AsyncSession = Depends(get_db),
+):
+    """Aggregate metrics rendered on the public landing page.
+
+    All counts come from live production tables (users, enrollments, lesson
+    progress). 5-minute browser cache via Cache-Control so the homepage
+    doesn't re-aggregate on every visit.
+    """
+    response.headers["Cache-Control"] = "public, max-age=300"
+
+    # ── Active learners ────────────────────────────────
+    learners_row = await session.execute(
+        select(func.count(User.id)).where(User.role == "learner")
+    )
+    learners = learners_row.scalar_one() or 0
+
+    # ── Lessons completed (across all learners) ────────
+    lessons_completed_row = await session.execute(
+        select(func.count(StudentLessonProgress.id)).where(
+            StudentLessonProgress.status == "completed"
+        )
+    )
+    lessons_completed = lessons_completed_row.scalar_one() or 0
+
+    # ── Avg minutes per learner (only learners with any time logged) ──
+    # total_time_spent_seconds / number of enrollments → average per
+    # enrolled-course-per-learner; divide by 60 to get minutes.
+    avg_seconds_row = await session.execute(
+        select(func.coalesce(func.avg(StudentCourseEnrollment.total_time_spent_seconds), 0))
+        .where(StudentCourseEnrollment.total_time_spent_seconds > 0)
+    )
+    avg_seconds = float(avg_seconds_row.scalar_one() or 0)
+    avg_minutes = round(avg_seconds / 60.0, 1) if avg_seconds else 0
+
+    # ── Top courses by enrollment count ────────────────
+    top_courses_rows = await session.execute(
+        select(
+            Course.id,
+            Course.slug,
+            Course.name,
+            Course.tagline,
+            Course.icon,
+            Course.theme_color,
+            Course.category_id,
+            func.count(StudentCourseEnrollment.id).label("enrollments"),
+        )
+        .outerjoin(StudentCourseEnrollment, StudentCourseEnrollment.course_id == Course.id)
+        .where(Course.status == "published")
+        .group_by(Course.id)
+        .order_by(func.count(StudentCourseEnrollment.id).desc(), Course.sort_order)
+        .limit(6)
+    )
+    top_courses = [
+        {
+            "id": row.slug,
+            "name": row.name,
+            "tagline": row.tagline or "",
+            "icon": row.icon or "",
+            "color": row.theme_color or "#10A37F",
+            "category_id": row.category_id,
+            "enrollments": int(row.enrollments or 0),
+        }
+        for row in top_courses_rows.all()
+    ]
+
+    # ── 30-day registrations (UTC days) ────────────────
+    thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
+    reg_rows = await session.execute(
+        select(
+            func.date(User.created_at).label("day"),
+            func.count(User.id).label("count"),
+        )
+        .where(User.created_at >= thirty_days_ago)
+        .group_by(func.date(User.created_at))
+        .order_by(func.date(User.created_at))
+    )
+    registrations_last_30d = [
+        {"date": str(row.day), "count": int(row.count or 0)}
+        for row in reg_rows.all()
+    ]
+
+    return {
+        "learners": int(learners),
+        "lessons_completed": int(lessons_completed),
+        "avg_minutes_per_learner": avg_minutes,
+        "top_courses": top_courses,
+        "registrations_last_30d": registrations_last_30d,
+        "as_of": datetime.now(timezone.utc).isoformat(),
+    }
+
 
 @router.get("/categories")
 async def get_content_categories(session: AsyncSession = Depends(get_db)):
