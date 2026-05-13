@@ -394,28 +394,31 @@ async def get_supervisor_learners(
     current_user: dict = Depends(get_current_supervisor),
     session: AsyncSession = Depends(get_db),
 ):
-    """Get list of learners assigned to current supervisor (or all for admin)."""
-    # If admin, return all assignments; if supervisor, return only theirs
-    if has_role(current_user, "admin"):
-        # Admin sees all assignments
-        result = await session.execute(
-            select(SupervisorAssignment, User)
-            .join(User, SupervisorAssignment.learner_user_id == User.id)
-        )
-    else:
-        # Supervisor sees only their assignments
-        supervisor_result = await session.execute(
-            select(User).where(User.username == current_user["username"].lower())
-        )
-        supervisor = supervisor_result.scalars().first()
-        if not supervisor:
-            return []
+    """Get list of learners assigned to current supervisor."""
+    # Get the user record to check if they have supervisor assignments
+    user_result = await session.execute(
+        select(User).where(User.username == current_user["username"].lower())
+    )
+    user = user_result.scalars().first()
+    if not user:
+        return []
 
-        result = await session.execute(
-            select(SupervisorAssignment, User)
-            .join(User, SupervisorAssignment.learner_user_id == User.id)
-            .where(SupervisorAssignment.supervisor_user_id == supervisor.id)
-        )
+    # Check if user has any supervisor assignments
+    assignment_check = await session.execute(
+        select(SupervisorAssignment).where(SupervisorAssignment.supervisor_user_id == user.id)
+    )
+    has_assignments = assignment_check.scalars().first() is not None
+
+    # If user has no supervisor assignments, return empty
+    if not has_assignments:
+        return []
+
+    # Return only the user's supervisor assignments
+    result = await session.execute(
+        select(SupervisorAssignment, User)
+        .join(User, SupervisorAssignment.learner_user_id == User.id)
+        .where(SupervisorAssignment.supervisor_user_id == user.id)
+    )
 
     assignments = result.all()
 
@@ -568,20 +571,18 @@ async def assign_learner_to_supervisor(
     return {"detail": f"Learner '{learner_username}' assigned to supervisor '{supervisor_username}'"}
 
 
-@admin_router.delete("/supervisor/{supervisor_username}/learners/{learner_username}")
-async def remove_learner_from_supervisor(
-    supervisor_username: str,
+@supervisor_router.delete("/supervisor/me/learners/{learner_username}")
+async def remove_learner_from_current_supervisor(
     learner_username: str,
-    current_admin: dict = Depends(get_current_admin),
+    current_user: dict = Depends(get_current_supervisor),
     session: AsyncSession = Depends(get_db),
 ):
-    """Remove a learner from a supervisor (admin only)."""
-    supervisor_username = supervisor_username.strip().lower()
+    """Remove a learner from the current supervisor."""
     learner_username = learner_username.strip().lower()
     
-    # Get supervisor
+    # Get current supervisor user
     supervisor_result = await session.execute(
-        select(User).where(User.username == supervisor_username)
+        select(User).where(User.username == current_user["username"].lower())
     )
     supervisor = supervisor_result.scalars().first()
     if not supervisor:
@@ -609,7 +610,7 @@ async def remove_learner_from_supervisor(
     await session.delete(assignment)
     await session.commit()
     
-    return {"detail": f"Learner '{learner_username}' removed from supervisor '{supervisor_username}'"}
+    return {"detail": f"Learner '{learner_username}' removed from your supervision"}
 
 
 @supervisor_router.get("/supervisor/learners/{learner_id}/progress")
@@ -673,6 +674,38 @@ async def get_learner_progress(
         },
         "enrollments": enrollments,
     }
+
+
+@admin_router.get("/users/search")
+async def search_users(
+    q: str = Query(..., min_length=3, description="Search query (username or email)"),
+    role: Optional[str] = Query(None, description="Filter by role (e.g., 'learner')"),
+    session: AsyncSession = Depends(get_db),
+):
+    """Search users by username or email (min 3 characters). Optionally filter by role."""
+    query = q.strip().lower()
+    stmt = select(User).where(
+        or_(
+            User.username.ilike(f"%{query}%"),
+            User.email.ilike(f"%{query}%")
+        )
+    )
+    
+    if role:
+        stmt = stmt.where(User.role == role)
+    
+    result = await session.execute(stmt.limit(10))
+    users = result.scalars().all()
+
+    return [
+        {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "role": user.role,
+        }
+        for user in users
+    ]
 
 
 @admin_router.delete("/users/{username}")

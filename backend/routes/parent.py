@@ -402,6 +402,9 @@ async def get_student_course_report(
         if enrollment["last_accessed_at"]:
             from datetime import datetime, timezone, timedelta
             last_active = datetime.fromisoformat(enrollment["last_accessed_at"])
+            # Ensure last_active is timezone-aware
+            if last_active.tzinfo is None:
+                last_active = last_active.replace(tzinfo=timezone.utc)
             if datetime.now(timezone.utc) - last_active > timedelta(days=7):
                 risk_flags.append("inactive_7_days")
 

@@ -198,3 +198,15 @@ export const getLearnerProgress = async (learnerId) => {
   }
   return response.json();
 };
+
+export const unlinkSupervisorLearner = async (learnerUsername) => {
+  const response = await fetch(`${API_BASE}/api/admin/supervisor/me/learners/${learnerUsername}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders()
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || 'Failed to unlink learner');
+  }
+  return response.json();
+};
