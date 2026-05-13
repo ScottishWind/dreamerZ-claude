@@ -58,7 +58,6 @@ def _user_to_dict(user: User) -> dict:
         "email": user.email,
         "hashed_password": user.hashed_password,
         "preferred_language": user.preferred_language or "en",
-        "is_admin": user.is_admin,
         "role": user.role or "learner",
         "ai_generation_enabled": user.ai_generation_enabled or False,
         "created_at": user.created_at.isoformat() if user.created_at else None,
@@ -124,22 +123,10 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
     return d
 
 
-def is_admin(user: dict) -> bool:
-    """Check if a user has admin privileges.
-
-    A user is an admin if their email is in the ADMIN_EMAILS env-var list
-    (super-admins) OR if they have been promoted via the admin panel
-    (is_admin flag stored in the DB).
-    """
-    if user.get("email", "").lower() in ADMIN_EMAILS:
-        return True
-    return bool(user.get("is_admin", False))
-
-
 def has_role(user: dict, *roles: str) -> bool:
     """Check if a user has any of the specified roles."""
     user_role = user.get("role", "learner")
-    # Super-admins are always considered admins
+    # Super-admins (emails in ADMIN_EMAILS) are always considered admins
     if user.get("email", "").lower() in ADMIN_EMAILS and "admin" in roles:
         return True
     return user_role in roles
@@ -161,7 +148,7 @@ async def require_role(*roles: str):
 async def get_current_admin(authorization: Optional[str] = Header(None)):
     """FastAPI dependency — require admin privileges."""
     user = await get_current_user(authorization)
-    if not is_admin(user):
+    if not has_role(user, "admin"):
         raise HTTPException(status_code=403, detail="Admin privileges required")
     return user
 
@@ -186,7 +173,7 @@ async def require_ai_generation_enabled(authorization: Optional[str] = Header(No
     """FastAPI dependency — require AI generation to be enabled for user."""
     user = await get_current_user(authorization)
     # Admins always have AI generation enabled
-    if is_admin(user):
+    if has_role(user, "admin"):
         return user
     # Creators must have ai_generation_enabled flag
     if has_role(user, "creator") and user.get("ai_generation_enabled"):

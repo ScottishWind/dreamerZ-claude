@@ -430,7 +430,6 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(500), nullable=False)
     preferred_language: Mapped[str] = mapped_column(String(10), default="en")
-    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     role: Mapped[str] = mapped_column(String(20), default="learner", nullable=False)
     ai_generation_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -448,7 +447,6 @@ class User(Base):
             "username": self.username,
             "email": self.email,
             "preferred_language": self.preferred_language,
-            "is_admin": self.is_admin,
             "is_active": self.is_active,
             "role": self.role,
             "ai_generation_enabled": self.ai_generation_enabled,

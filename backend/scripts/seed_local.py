@@ -53,7 +53,6 @@ async def _create_test_user(session) -> None:
         email="test@example.com",
         hashed_password=get_password_hash("password123"),
         preferred_language="en",
-        is_admin=False,
         is_active=True,
     )
     session.add(user)

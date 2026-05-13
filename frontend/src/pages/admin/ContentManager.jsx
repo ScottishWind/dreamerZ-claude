@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ArrowLeft, Sparkles, Pencil } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { CourseList } from './CourseList';
@@ -15,13 +15,18 @@ import { ManualCourseConfig } from './ManualCourseConfig';
  *  - 'manual-config': ManualCourseConfig — manual course creation wizard
  */
 export const ContentManager = ({ token }) => {
-  const { user, isAdmin } = useAuth();
-  const canUseAI = isAdmin() || !!user?.aiGenerationEnabled;
+  const { user, isAdmin, refreshUser } = useAuth();
+  const canUseAI = !!user?.aiGenerationEnabled;
 
   const [view, setView] = useState('list'); // 'list' | 'detail' | 'choose' | 'creator' | 'manual-config'
   const [selectedCourseId, setSelectedCourseId] = useState(null);
   // Used to force-remount CourseList (refresh) after publish/delete
   const [listRefreshKey, setListRefreshKey] = useState(0);
+
+  // Refresh user data on mount to get latest aiGenerationEnabled status
+  useEffect(() => {
+    refreshUser();
+  }, [refreshUser]);
 
   const goToList = () => {
     setView('list');

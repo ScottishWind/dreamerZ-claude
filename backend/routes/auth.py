@@ -17,7 +17,7 @@ from services.auth_service import (
     create_access_token,
     get_current_user,
     get_password_hash,
-    is_admin,
+    has_role,
 )
 from services.email_service import send_welcome_email
 from middleware.rate_limit import check_auth_rate_limit
@@ -84,7 +84,6 @@ async def register_user(user: UserCreate, session: AsyncSession = Depends(get_db
         hashed_password=hashed_password,
         preferred_language=lang,
         role=final_role,
-        is_admin=is_admin_email,
         created_at=now,
         updated_at=now,
         last_login=None,
@@ -105,8 +104,7 @@ async def register_user(user: UserCreate, session: AsyncSession = Depends(get_db
         "username": username,
         "email": email,
         "created_at": created_at,
-        "is_admin": email.lower() in ADMIN_EMAILS,
-        "role": "learner",
+        "role": final_role,
         "ai_generation_enabled": False,
         "preferred_language": lang,
     }
@@ -132,10 +130,9 @@ async def login_user(credentials: UserLogin, request: Request, session: AsyncSes
             status_code=401, detail="Invalid username, email, or password."
         )
 
-    admin = is_admin(user)
     user_lang = user.get("preferred_language", DEFAULT_LANGUAGE)
     token = create_access_token(
-        {"sub": user["username"], "email": user["email"], "is_admin": admin, "lang": user_lang, "role": user.get("role", "learner")}
+        {"sub": user["username"], "email": user["email"], "lang": user_lang, "role": user.get("role", "learner")}
     )
 
     # Update last_login via SQLAlchemy
@@ -152,7 +149,6 @@ async def login_user(credentials: UserLogin, request: Request, session: AsyncSes
         "username": user["username"],
         "email": user["email"],
         "created_at": user["created_at"],
-        "is_admin": admin,
         "role": user.get("role", "learner"),
         "ai_generation_enabled": user.get("ai_generation_enabled", False),
         "preferred_language": user_lang,
@@ -165,7 +161,6 @@ async def get_profile(current_user: dict = Depends(get_current_user)):
         "username": current_user["username"],
         "email": current_user["email"],
         "created_at": current_user["created_at"],
-        "is_admin": is_admin(current_user),
         "role": current_user.get("role", "learner"),
         "ai_generation_enabled": current_user.get("ai_generation_enabled", False),
         "preferred_language": current_user.get("preferred_language", DEFAULT_LANGUAGE),
@@ -244,10 +239,9 @@ async def change_password(
     user.updated_at = datetime.now(timezone.utc)
     await session.commit()
 
-    admin = is_admin(current_user)
     user_lang = current_user.get("preferred_language", DEFAULT_LANGUAGE)
     new_token = create_access_token(
-        {"sub": user.username, "email": user.email, "is_admin": admin, "lang": user_lang}
+        {"sub": user.username, "email": user.email, "lang": user_lang, "role": user.role}
     )
 
     return {
@@ -255,7 +249,7 @@ async def change_password(
         "username": user.username,
         "email": user.email,
         "created_at": user.created_at.isoformat() if user.created_at else None,
-        "is_admin": admin,
+        "role": user.role,
         "preferred_language": user_lang,
     }
 
@@ -324,10 +318,9 @@ async def forgot_password(
     user.updated_at = datetime.now(timezone.utc)
     await session.commit()
 
-    admin_flag = (user.email or "").lower() in ADMIN_EMAILS or bool(user.is_admin)
     user_lang = user.preferred_language or DEFAULT_LANGUAGE
     new_token = create_access_token(
-        {"sub": user.username, "email": user.email, "is_admin": admin_flag, "lang": user_lang}
+        {"sub": user.username, "email": user.email, "lang": user_lang, "role": user.role}
     )
 
     logger.info("Password reset via forgot-password for user %s", user.username)
@@ -337,6 +330,6 @@ async def forgot_password(
         "username": user.username,
         "email": user.email,
         "created_at": user.created_at.isoformat() if user.created_at else None,
-        "is_admin": admin_flag,
+        "role": user.role,
         "preferred_language": user_lang,
     }

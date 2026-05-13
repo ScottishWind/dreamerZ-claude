@@ -21,7 +21,7 @@ from models.sql_models import (
     MediaAsset, Category, PricingPlan, FAQ, StudentCourseEnrollment, SupervisorAssignment,
 )
 from models.user import AdminUserResponse, RoleUpdate, AIFeatureUpdate
-from services.auth_service import get_current_admin, get_current_creator, get_current_supervisor, is_admin as is_admin_user, require_ai_generation_enabled
+from services.auth_service import get_current_admin, get_current_creator, get_current_supervisor, has_role, require_ai_generation_enabled
 from services import media_service
 from services import translation_service
 
@@ -291,7 +291,6 @@ async def list_users(
             "email": u.email,
             "created_at": u.created_at.isoformat() if u.created_at else "",
             "last_login": u.last_login.isoformat() if u.last_login else None,
-            "is_admin": is_super or bool(u.is_admin),
             "is_super_admin": is_super,
             "is_active": u.is_active,
             "role": u.role or "learner",
@@ -340,8 +339,6 @@ async def update_user_role(
         )
 
     user.role = body.role
-    # Sync is_admin flag with role
-    user.is_admin = (body.role == "admin")
     user.updated_at = datetime.now(timezone.utc)
     await session.commit()
 
@@ -399,7 +396,7 @@ async def get_supervisor_learners(
 ):
     """Get list of learners assigned to current supervisor (or all for admin)."""
     # If admin, return all assignments; if supervisor, return only theirs
-    if is_admin_user(current_user):
+    if has_role(current_user, "admin"):
         # Admin sees all assignments
         result = await session.execute(
             select(SupervisorAssignment, User)
@@ -627,7 +624,7 @@ async def get_learner_progress(
     frontend Student/Learner card can render consistently.
     """
     # Verify assignment exists (admins bypass assignment check)
-    if not is_admin_user(current_user):
+    if not has_role(current_user, "admin"):
         supervisor_result = await session.execute(
             select(User).where(User.username == current_user["username"].lower())
         )

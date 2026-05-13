@@ -42,7 +42,6 @@ class TokenResponse(BaseModel):
     username: str
     email: str
     created_at: str
-    is_admin: bool = False
     role: str = "learner"
     ai_generation_enabled: bool = False
     preferred_language: str = "en"
@@ -52,7 +51,6 @@ class UserInfoResponse(BaseModel):
     username: str
     email: str
     created_at: str
-    is_admin: bool = False
     role: str = "learner"
     ai_generation_enabled: bool = False
     preferred_language: str = "en"
@@ -64,7 +62,6 @@ class AdminUserResponse(BaseModel):
     email: str
     created_at: str
     last_login: Optional[str] = None
-    is_admin: bool = False
     is_super_admin: bool = False
     is_active: bool = True
     role: str = "learner"

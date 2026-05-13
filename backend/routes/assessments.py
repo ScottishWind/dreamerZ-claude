@@ -22,7 +22,7 @@ from services.assessment_service import (
     get_assessment_answers,
     update_lesson_best_score,
 )
-from services.auth_service import get_current_user
+from services.auth_service import get_current_user, has_role
 
 router = APIRouter(prefix="/assessments", tags=["assessments"])
 
@@ -173,7 +173,7 @@ async def get_attempt(
             raise HTTPException(status_code=404, detail="Attempt not found")
 
         # Verify user owns this attempt or is admin
-        if attempt["student_user_id"] != user_id and not current_user.get("is_admin"):
+        if attempt["student_user_id"] != user_id and not has_role(current_user, "admin"):
             raise HTTPException(status_code=403, detail="Access denied")
 
         return attempt

@@ -38,10 +38,9 @@ const storePasswordCredential = async ({ username, email, password }) => {
   }
 };
 
-const buildUserProfile = ({ username, email, profile, lastLoginAt, createdAt, isAdmin, preferredLanguage, role, aiGenerationEnabled }) => ({
+const buildUserProfile = ({ username, email, profile, lastLoginAt, createdAt, preferredLanguage, role, aiGenerationEnabled }) => ({
   username,
   email,
-  isAdmin: isAdmin || false,
   role: role || 'learner',
   aiGenerationEnabled: aiGenerationEnabled || false,
   preferredLanguage: preferredLanguage || 'en',
@@ -106,7 +105,6 @@ export const AuthProvider = ({ children }) => {
       user: buildUserProfile({
         username: result.username,
         email: result.email,
-        isAdmin: result.is_admin,
         preferredLanguage: result.preferred_language,
         profile: result.profile,
         createdAt: result.created_at,
@@ -150,25 +148,24 @@ export const AuthProvider = ({ children }) => {
 
   // Swap in a fresh TokenResponse (e.g. after change-password).
   // Keeps the user logged in seamlessly without bouncing through /login.
-  const applyAuthResponse = useCallback((result) => {
-    if (!result?.access_token) return;
+  const applyAuthResponse = useCallback((response) => {
     const auth = {
-      token: result.access_token,
+      token: response.access_token,
       user: buildUserProfile({
-        username: result.username,
-        email: result.email,
-        isAdmin: result.is_admin,
-        preferredLanguage: result.preferred_language,
-        profile: result.profile,
-        createdAt: result.created_at,
+        username: response.username,
+        email: response.email,
+        preferredLanguage: response.preferred_language,
+        profile: response.profile,
+        createdAt: response.created_at,
         lastLoginAt: new Date().toISOString(),
-        role: result.role,
-        aiGenerationEnabled: result.ai_generation_enabled,
-      }),
+        role: response.role,
+        aiGenerationEnabled: response.ai_generation_enabled,
+      })
     };
     saveAuth(auth);
     setUser(auth.user);
     setToken(auth.token);
+    return auth;
   }, []);
 
   const updateProfile = useCallback((updates) => {
@@ -192,6 +189,38 @@ export const AuthProvider = ({ children }) => {
     });
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    if (!token) return;
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/me`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      if (response.ok) {
+        const result = await response.json();
+        const updatedUser = buildUserProfile({
+          username: result.username,
+          email: result.email,
+          preferredLanguage: result.preferred_language,
+          profile: result.profile,
+          createdAt: result.created_at,
+          lastLoginAt: new Date().toISOString(),
+          role: result.role,
+          aiGenerationEnabled: result.ai_generation_enabled,
+        });
+        const stored = getStoredAuth();
+        if (stored?.token) {
+          saveAuth({ ...stored, user: updatedUser });
+        }
+        setUser(updatedUser);
+      }
+    } catch (error) {
+      console.error('Failed to refresh user data', error);
+    }
+  }, [token]);
+
   const logout = useCallback(() => {
     localStorage.removeItem(STORAGE_KEY);
     setUser(null);
@@ -210,12 +239,13 @@ export const AuthProvider = ({ children }) => {
         register,
         applyAuthResponse,
         updateProfile,
+        refreshUser,
         logout,
         hasRole: (user, ...roles) => roles.includes(user?.role || 'learner'),
-        isAdmin: () => user?.isAdmin || false,
-        isCreator: () => user?.role === 'creator' || user?.isAdmin || false,
-        isSupervisor: () => user?.role === 'supervisor' || user?.isAdmin || false,
-        isLearner: () => user?.role === 'learner' || (!user?.role && !user?.isAdmin) || false,
+        isAdmin: () => user?.role === 'admin',
+        isCreator: () => user?.role === 'creator' || user?.role === 'admin',
+        isSupervisor: () => user?.role === 'supervisor' || user?.role === 'admin',
+        isLearner: () => user?.role === 'learner' || (!user?.role),
       }}
     >
       {children}

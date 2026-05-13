@@ -26,7 +26,7 @@ from services.assessment_service import (
     get_student_assessment_attempts,
     get_best_assessment_attempt,
 )
-from services.auth_service import get_current_user
+from services.auth_service import get_current_user, has_role
 
 router = APIRouter(prefix="/parent", tags=["parent"])
 
@@ -177,7 +177,7 @@ async def update_link(
             select(User.id).where(User.username == current_user["username"])
         )
         user_id = result.scalar()
-        if link["parent_user_id"] != user_id and not current_user.get("is_admin"):
+        if link["parent_user_id"] != user_id and not has_role(current_user, "admin"):
             raise HTTPException(status_code=403, detail="Access denied")
 
         return link
@@ -209,7 +209,7 @@ async def delete_link(
         if not link:
             raise HTTPException(status_code=404, detail="Link not found")
 
-        if link["parent_user_id"] != user_id and not current_user.get("is_admin"):
+        if link["parent_user_id"] != user_id and not has_role(current_user, "admin"):
             raise HTTPException(status_code=403, detail="Access denied")
 
         return link
@@ -267,7 +267,7 @@ async def get_student_overview(
 
         # Verify parent has access to this student
         has_access = await check_parent_access(parent_user_id, student_user_id, session)
-        if not has_access and not current_user.get("is_admin"):
+        if not has_access and not has_role(current_user, "admin"):
             raise HTTPException(status_code=403, detail="Access denied to student data")
 
         # Get all enrollments for the student
@@ -328,7 +328,7 @@ async def get_student_courses(
             raise HTTPException(status_code=404, detail="User not found")
 
         has_access = await check_parent_access(parent_user_id, student_user_id, session)
-        if not has_access and not current_user.get("is_admin"):
+        if not has_access and not has_role(current_user, "admin"):
             raise HTTPException(status_code=403, detail="Access denied to student data")
 
         enrollments = await get_student_course_enrollments(student_user_id, session)
@@ -359,7 +359,7 @@ async def get_student_course_report(
             raise HTTPException(status_code=404, detail="User not found")
 
         has_access = await check_parent_access(parent_user_id, student_user_id, session)
-        if not has_access and not current_user.get("is_admin"):
+        if not has_access and not has_role(current_user, "admin"):
             raise HTTPException(status_code=403, detail="Access denied to student data")
 
         # Get enrollment
@@ -447,7 +447,7 @@ async def get_student_course_lessons(
             raise HTTPException(status_code=404, detail="User not found")
 
         has_access = await check_parent_access(parent_user_id, student_user_id, session)
-        if not has_access and not current_user.get("is_admin"):
+        if not has_access and not has_role(current_user, "admin"):
             raise HTTPException(status_code=403, detail="Access denied to student data")
 
         lesson_progress = await get_course_lesson_progress(student_user_id, course_id, session)

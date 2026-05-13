@@ -121,7 +121,7 @@ const UsersTab = ({ token }) => {
       });
       setUsers((prev) =>
         prev.map((u) =>
-          u.username === username ? { ...u, role: newRole, is_admin: newRole === 'admin' } : u
+          u.username === username ? { ...u, role: newRole } : u
         )
       );
     } catch (e) {
