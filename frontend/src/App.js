@@ -21,6 +21,7 @@ import { ParentStudentDetail } from "./pages/ParentStudentDetail";
 import { AuthProvider } from "./hooks/useAuth";
 import { LanguageProvider } from "./hooks/useLanguage";
 import { LearningProgressProvider } from "./hooks/useLearningProgress";
+import { useEffect } from "react";
 
 /** Redirect /tools/:toolId → /learn/:toolId preserving the param */
 const ToolRedirect = () => {
@@ -29,6 +30,27 @@ const ToolRedirect = () => {
 };
 
 function App() {
+  // Keepalive: ping backend health endpoint every 5 minutes to prevent Render from shutting down
+  useEffect(() => {
+    const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
+    const pingBackend = async () => {
+      try {
+        await fetch(`${API_BASE}/api/health`, {
+          method: 'GET',
+          cache: 'no-store',
+        });
+      } catch (err) {
+        // Silent fail — keepalive is best-effort
+      }
+    };
+
+    // Ping immediately on mount, then every 5 minutes
+    pingBackend();
+    const interval = setInterval(pingBackend, 5 * 60 * 1000); // 5 minutes
+
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <HelmetProvider>
       <div className="App flex flex-col min-h-screen">
@@ -51,13 +73,13 @@ function App() {
                   <Route path="/register" element={<Register />} />
                   <Route path="/reset-password" element={<ChangePassword />} />
                   <Route path="/forgot-password" element={<ForgotPassword />} />
-                  <Route 
-                    path="/admin" 
+                  <Route
+                    path="/admin"
                     element={
                       <RequireRole roles={["creator", "admin"]}>
                         <AdminPanel />
                       </RequireRole>
-                    } 
+                    }
                   />
 
                   {/* Parent dashboard routes — /parent and /parents both
@@ -65,13 +87,13 @@ function App() {
                       live dashboard for supervisors/admins and the marketing
                       copy for everyone else. Same component, two URLs. */}
                   <Route path="/parent" element={<Parents />} />
-                  <Route 
-                    path="/parent/students/:studentUserId" 
+                  <Route
+                    path="/parent/students/:studentUserId"
                     element={
                       <RequireRole roles={["supervisor", "admin"]}>
                         <ParentStudentDetail />
                       </RequireRole>
-                    } 
+                    }
                   />
 
                   {/* Backward-compatible redirects */}
