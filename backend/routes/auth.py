@@ -38,8 +38,7 @@ async def register_user(user: UserCreate, session: AsyncSession = Depends(get_db
     if not USERNAME_REGEX.match(username):
         raise HTTPException(
             status_code=400,
-            detail="Username must be 3-30 characters and can only contain "
-            "letters, numbers, and underscores.",
+            detail="Name must be at least 3 characters and can only contain letters, numbers, and spaces.",
         )
     if not EMAIL_REGEX.match(email):
         raise HTTPException(
@@ -127,7 +126,7 @@ async def login_user(credentials: UserLogin, request: Request, session: AsyncSes
     user = await authenticate_user(username, email, credentials.password)
     if not user:
         raise HTTPException(
-            status_code=401, detail="Invalid username, email, or password."
+            status_code=401, detail="Invalid Email or Password."
         )
 
     user_lang = user.get("preferred_language", DEFAULT_LANGUAGE)

@@ -36,7 +36,7 @@ if not JWT_SECRET or JWT_SECRET == "change-this-secret":
     JWT_SECRET = JWT_SECRET or "change-this-secret"
 
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-USERNAME_REGEX = re.compile(r"^[a-zA-Z0-9_]{3,30}$")
+USERNAME_REGEX = re.compile(r"^[a-zA-Z0-9\s]{3,}$")
 
 # ── Rate Limiting ─────────────────────────────────────────
 RATE_LIMIT_REQUESTS = int(os.environ.get("RATE_LIMIT_REQUESTS", 10))

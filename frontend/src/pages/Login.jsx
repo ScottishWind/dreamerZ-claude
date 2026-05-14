@@ -12,11 +12,41 @@ export const Login = () => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [emailError, setEmailError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const validateEmail = () => {
+    const trimmedEmail = email.trim();
+
+    if (trimmedEmail.length === 0) {
+      setEmailError('Email is required.');
+      return false;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      setEmailError('Please enter a valid email address (e.g., user@example.com).');
+      return false;
+    }
+
+    setEmailError('');
+    return true;
+  };
+
+  const handleEmailChange = (e) => {
+    setEmail(e.target.value);
+    if (emailError) setEmailError('');
+  };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError('');
+
+    // Validate email before submitting
+    const emailValid = validateEmail();
+    if (!emailValid) {
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -46,20 +76,31 @@ export const Login = () => {
           >
             <label className="block text-sm font-medium text-slate-700">
               Email
-              <div className="mt-2 relative rounded-xl border border-slate-200 bg-slate-50 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary">
-                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  id="login-email"
-                  name="email"
-                  type="email"
-                  autoComplete="username email"
-                  inputMode="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full rounded-xl border-0 bg-transparent py-3 pl-12 pr-4 text-slate-900 outline-none"
-                  placeholder="email@example.com"
-                  required
-                />
+              <div className="relative">
+                <div className={`mt-2 relative rounded-xl border bg-slate-50 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary ${emailError ? 'border-rose-500 focus-within:border-rose-500 focus-within:ring-rose-500' : 'border-slate-200'}`}>
+                  <Mail className={`absolute left-4 top-1/2 -translate-y-1/2 ${emailError ? 'text-rose-500' : 'text-slate-400'}`} />
+                  <input
+                    id="login-email"
+                    name="email"
+                    type="email"
+                    autoComplete="username email"
+                    inputMode="email"
+                    value={email}
+                    onChange={handleEmailChange}
+                    onBlur={validateEmail}
+                    className={`w-full rounded-xl border-0 bg-transparent py-3 pl-12 pr-4 outline-none ${emailError ? 'text-rose-900' : 'text-slate-900'}`}
+                    placeholder="email@example.com"
+                    required
+                  />
+                </div>
+                {emailError && (
+                  <div className="absolute z-10 mt-2 left-0 right-0 bg-rose-600 text-white text-xs rounded-lg px-3 py-2 shadow-lg">
+                    <div className="relative">
+                      {emailError}
+                      <div className="absolute -top-1 left-4 w-2 h-2 bg-rose-600 transform rotate-45"></div>
+                    </div>
+                  </div>
+                )}
               </div>
             </label>
 
@@ -101,7 +142,7 @@ export const Login = () => {
               </div>
             )}
 
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="w-full" disabled={loading || emailError}>
               {loading ? 'Signing in...' : 'Sign in'}
             </Button>
           </form>
