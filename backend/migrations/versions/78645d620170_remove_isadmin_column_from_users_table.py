@@ -31,12 +31,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Downgrade schema.
+    """Downgrade schema — intentionally a no-op.
 
-    Re-add is_admin with a server-side default so the column is
-    populatable even though application code no longer sets it.
+    `is_admin` is permanently retired in favour of the `role` column.
+    Re-adding it on downgrade would resurrect a dead column that no
+    model or code path populates — exactly the NotNullViolationError
+    this migration was written to kill. There is no scenario where we
+    want it back, so downgrade does nothing.
     """
-    op.execute(
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin "
-        "BOOLEAN NOT NULL DEFAULT FALSE"
-    )
+    pass
