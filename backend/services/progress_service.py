@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional, List
 
-from sqlalchemy import select, and_, or_
+from sqlalchemy import select, and_, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
@@ -32,6 +32,74 @@ async def _get_session_if_needed(session):
     if session is not None:
         return session, False
     return async_session(), True
+
+
+async def _sync_enrollment_counters(
+    sess: AsyncSession,
+    student_user_id: int,
+    course_id: int,
+):
+    """Recalculate a course enrollment's lesson counters from the actual
+    StudentLessonProgress rows.
+
+    The progress dashboards read the StudentCourseEnrollment row, not the
+    individual lesson rows — so completing a lesson has to be reflected back
+    onto the enrollment or the dashboard stays stuck at 0%. Marking a lesson
+    complete used to update only the lesson row, which is exactly that bug.
+
+    Mutates the enrollment in-place (no commit) and returns it, or None when
+    there is no enrollment for the student/course pair.
+    """
+    enr_result = await sess.execute(
+        select(StudentCourseEnrollment).where(
+            and_(
+                StudentCourseEnrollment.student_user_id == student_user_id,
+                StudentCourseEnrollment.course_id == course_id,
+            )
+        )
+    )
+    enrollment = enr_result.scalars().first()
+    if not enrollment:
+        return None
+
+    completed = (
+        await sess.execute(
+            select(func.count(StudentLessonProgress.id)).where(
+                and_(
+                    StudentLessonProgress.student_user_id == student_user_id,
+                    StudentLessonProgress.course_id == course_id,
+                    StudentLessonProgress.status == "completed",
+                )
+            )
+        )
+    ).scalar() or 0
+
+    # Recompute the denominator too, so adding/removing lessons after a
+    # student enrolled doesn't leave a stale total behind.
+    total = (
+        await sess.execute(
+            select(func.count(Lesson.id))
+            .join(Module, Lesson.module_id == Module.id)
+            .where(Module.course_id == course_id, Lesson.status == "published")
+        )
+    ).scalar() or 0
+
+    enrollment.lessons_completed_count = completed
+    enrollment.total_lessons_count = total
+    enrollment.completion_percent = (completed / total * 100) if total > 0 else 0.0
+    enrollment.last_accessed_at = datetime.now(timezone.utc)
+
+    if total > 0 and completed >= total:
+        if enrollment.status != "completed":
+            enrollment.status = "completed"
+            enrollment.completed_at = datetime.now(timezone.utc)
+    elif enrollment.status == "completed":
+        # A previously-completed course dropped below 100% (lesson un-completed
+        # or new lessons added) — reopen it.
+        enrollment.status = "in_progress"
+        enrollment.completed_at = None
+
+    return enrollment
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +265,17 @@ async def get_student_course_enrollments(
             )
         )
         enrollments = result.scalars().all()
-        return [e.to_dict() for e in enrollments]
+
+        # Self-heal: recompute counters from the lesson-progress rows so the
+        # dashboard reflects completions even for enrollments that were
+        # created before write-path syncing existed. Dicts are built before
+        # the commit while the ORM objects are still live.
+        for enrollment in enrollments:
+            await _sync_enrollment_counters(sess, student_user_id, enrollment.course_id)
+        payload = [e.to_dict() for e in enrollments]
+        if enrollments:
+            await sess.commit()
+        return payload
     finally:
         if close:
             await sess.close()
@@ -371,6 +449,11 @@ async def update_lesson_progress(
                 progress.mastery_level = "developing"
             else:
                 progress.mastery_level = "beginner"
+
+        # Roll the change up onto the parent course enrollment so the
+        # dashboard's completion % tracks lesson completions. This is what
+        # makes `complete_lesson_progress` actually move the needle.
+        await _sync_enrollment_counters(sess, student_user_id, progress.course_id)
 
         await sess.commit()
         await sess.refresh(progress)
