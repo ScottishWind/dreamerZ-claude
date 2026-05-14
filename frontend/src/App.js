@@ -21,6 +21,7 @@ import { ParentStudentDetail } from "./pages/ParentStudentDetail";
 import { AuthProvider } from "./hooks/useAuth";
 import { LanguageProvider } from "./hooks/useLanguage";
 import { LearningProgressProvider } from "./hooks/useLearningProgress";
+import { ProgressProvider } from "./hooks/useProgress";
 import { useEffect } from "react";
 
 /** Redirect /tools/:toolId → /learn/:toolId preserving the param */
@@ -58,6 +59,7 @@ function App() {
           <AuthProvider>
           <LanguageProvider>
           <LearningProgressProvider>
+          <ProgressProvider>
             <ErrorBoundary>
               <Navbar />
               <main className="flex-grow pt-16">
@@ -110,6 +112,7 @@ function App() {
               <Footer />
             </ErrorBoundary>
             <Toaster position="bottom-right" />
+          </ProgressProvider>
           </LearningProgressProvider>
           </LanguageProvider>
           </AuthProvider>
