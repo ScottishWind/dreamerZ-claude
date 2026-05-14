@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { BookOpen, FlaskConical, MessageCircle, ArrowLeft } from 'lucide-react';
-import { useProgress } from '../hooks/useProgress';
 import { useLanguage } from '../hooks/useLanguage';
 import { useLearningProgress } from '../hooks/useLearningProgress';
 import { JourneyPlayer } from '../components/JourneyPlayer';
@@ -27,18 +26,122 @@ export const ToolJourney = () => {
   const [activeTab, setActiveTab] = useState('modules');
   const [isEnrolled, setIsEnrolled] = useState(false);
   const [isEnrolling, setIsEnrolling] = useState(false);
-  const {
-    isModuleCompleted,
-    isModuleUnlocked,
-    getModuleProgress,
-    completeModule,
-  } = useProgress();
+  const [lessonProgressMap, setLessonProgressMap] = useState(new Map());
+  const [progressVersion, setProgressVersion] = useState(0);
 
   const { language } = useLanguage();
-  const { startCourse, loadCourseEnrollment } = useLearningProgress();
+  const { startCourse, loadCourseEnrollment, loadCourseLessonProgress } = useLearningProgress();
   const isAITool = AI_TOOL_IDS.includes(toolId);
   const isEnglish = toolId === 'spoken-english-30day';
   const courseDbId = numericId(tool?.db_id || tool?.course_id || tool?.id);
+
+  // Backend-based progress helpers
+  const isModuleCompleted = useCallback((courseId, lessonId) => {
+    // Try to find progress by lessonId, then by trying to find the lesson in the course data to get db_id
+    let progress = lessonProgressMap.get(lessonId);
+
+    // If not found, try to find the lesson in the course data to get its db_id
+    if (!progress && tool?.sections) {
+      for (const section of tool.sections) {
+        const lesson = section.lessons?.find(l => l.id === lessonId);
+        if (lesson?.db_id) {
+          progress = lessonProgressMap.get(lesson.db_id);
+          break;
+        }
+      }
+    }
+
+    return progress?.status === 'completed';
+  }, [lessonProgressMap, tool]);
+
+  const getModuleProgress = useCallback((courseId, lessonId) => {
+    // Try to find progress by lessonId, then by trying to find the lesson in the course data to get db_id
+    let progress = lessonProgressMap.get(lessonId);
+
+    // If not found, try to find the lesson in the course data to get its db_id
+    if (!progress && tool?.sections) {
+      for (const section of tool.sections) {
+        const lesson = section.lessons?.find(l => l.id === lessonId);
+        if (lesson?.db_id) {
+          progress = lessonProgressMap.get(lesson.db_id);
+          break;
+        }
+      }
+    }
+
+    if (!progress) return null;
+    return {
+      quizScore: progress.best_score || 0,
+      attempts: progress.visit_count || 0,
+      completed: progress.status === 'completed',
+      completionPercent: progress.completion_percent || 0,
+    };
+  }, [lessonProgressMap, tool]);
+
+  const isModuleUnlocked = useCallback((courseId, lessonId, modules) => {
+    const moduleList = modules || [];
+    if (!moduleList || moduleList.length === 0) return true;
+
+    // Try to find by id first
+    let moduleIndex = moduleList.findIndex(m => m.id === lessonId);
+
+    // If not found, try to find by db_id
+    if (moduleIndex === -1) {
+      moduleIndex = moduleList.findIndex(m => m.db_id === lessonId);
+    }
+
+    if (moduleIndex <= 0) return true; // First module always unlocked
+
+    const prevModule = moduleList[moduleIndex - 1];
+    const prevModuleId = prevModule.db_id || prevModule.id;
+    return isModuleCompleted(courseId, prevModuleId);
+  }, [isModuleCompleted]);
+
+  const completeModule = useCallback((courseId, lessonId, quizScore) => {
+    // This is handled by JourneyPlayer via backend API calls
+    // We just update the local state to reflect the change immediately
+    setLessonProgressMap(prev => {
+      const newMap = new Map(prev);
+
+      // Try to find the lesson's db_id in the course data
+      let dbId = lessonId;
+      if (tool?.sections) {
+        for (const section of tool.sections) {
+          const lesson = section.lessons?.find(l => l.id === lessonId);
+          if (lesson?.db_id) {
+            dbId = lesson.db_id;
+            break;
+          }
+        }
+      }
+
+      const existing = newMap.get(dbId) || {};
+      newMap.set(dbId, {
+        ...existing,
+        status: 'completed',
+        best_score: Math.max(quizScore, existing.best_score || 0),
+        visit_count: (existing.visit_count || 0) + 1,
+      });
+      return newMap;
+    });
+    setProgressVersion(prev => prev + 1);
+  }, [tool]);
+
+  const refreshProgress = useCallback(async () => {
+    if (courseDbId) {
+      try {
+        const progressList = await loadCourseLessonProgress(courseDbId);
+        const progressMap = new Map();
+        progressList.forEach(progress => {
+          progressMap.set(progress.lesson_id, progress);
+        });
+        setLessonProgressMap(progressMap);
+        setProgressVersion(prev => prev + 1);
+      } catch (err) {
+        console.error('Failed to refresh progress:', err);
+      }
+    }
+  }, [courseDbId, loadCourseLessonProgress]);
 
   // Build available tabs based on tool type
   const tabs = [
@@ -114,14 +217,25 @@ export const ToolJourney = () => {
         try {
           await loadCourseEnrollment(courseDbId);
           setIsEnrolled(true);
+
+          // Load lesson progress from backend for this course
+          const progressList = await loadCourseLessonProgress(courseDbId);
+          const progressMap = new Map();
+          progressList.forEach(progress => {
+            progressMap.set(progress.lesson_id, progress);
+          });
+          setLessonProgressMap(progressMap);
+          setProgressVersion(prev => prev + 1);
         } catch (err) {
           // User is not enrolled
           setIsEnrolled(false);
+          setLessonProgressMap(new Map());
+          setProgressVersion(prev => prev + 1);
         }
       }
     };
     checkEnrollment();
-  }, [courseDbId, loadCourseEnrollment]);
+  }, [courseDbId, loadCourseEnrollment, loadCourseLessonProgress]);
 
   const handleEnroll = async () => {
     if (!courseDbId) return;
@@ -130,6 +244,15 @@ export const ToolJourney = () => {
     try {
       await startCourse(courseDbId);
       setIsEnrolled(true);
+
+      // Load lesson progress from backend after enrollment
+      const progressList = await loadCourseLessonProgress(courseDbId);
+      const progressMap = new Map();
+      progressList.forEach(progress => {
+        progressMap.set(progress.lesson_id, progress);
+      });
+      setLessonProgressMap(progressMap);
+      setProgressVersion(prev => prev + 1);
     } catch (err) {
       setError(err.message || 'Failed to enroll in course');
     } finally {
@@ -249,6 +372,8 @@ export const ToolJourney = () => {
           isModuleUnlocked={isModuleUnlocked}
           getModuleProgress={getModuleProgress}
           completeModule={completeModule}
+          refreshProgress={refreshProgress}
+          progressVersion={progressVersion}
           previewVideoUrl="https://www.youtube.com/embed/zegMOOKy_6A"
         />
       )}

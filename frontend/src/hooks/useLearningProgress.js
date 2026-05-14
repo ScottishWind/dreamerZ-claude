@@ -248,6 +248,17 @@ export const LearningProgressProvider = ({ children }) => {
     }
   }, []);
 
+  // Get all lesson progress for a course
+  const loadCourseLessonProgress = useCallback(async (courseId) => {
+    try {
+      const progressList = await progressService.getCourseLessonProgress(courseId);
+      return progressList;
+    } catch (err) {
+      console.error('Failed to load course lesson progress:', err);
+      return [];
+    }
+  }, []);
+
   // Clear current state
   const clearCurrentState = useCallback(() => {
     setCurrentCourseEnrollment(null);
@@ -277,6 +288,7 @@ export const LearningProgressProvider = ({ children }) => {
         submitAssessment,
         getBestAttempt,
         getAttemptsCount,
+        loadCourseLessonProgress,
         clearCurrentState,
       }}
     >

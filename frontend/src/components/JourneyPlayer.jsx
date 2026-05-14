@@ -115,6 +115,8 @@ export const JourneyPlayer = ({
   isModuleUnlocked,
   getModuleProgress,
   completeModule,
+  refreshProgress,
+  progressVersion,
   initialModuleId,
   previewVideoUrl,
   previewMode = false,
@@ -302,7 +304,7 @@ export const JourneyPlayer = ({
   const isCurrentModuleCompleted = isModuleCompleted(course.id, activeModule?.id);
   const completedCount = useMemo(
     () => allLessons.filter(m => isModuleCompleted(course.id, m.id)).length,
-    [allLessons, course.id, isModuleCompleted]
+    [allLessons, course.id, isModuleCompleted, progressVersion]
   );
   const progressPercent = Math.round((completedCount / allLessons.length) * 100);
 
@@ -351,6 +353,12 @@ export const JourneyPlayer = ({
         completeLesson(activeLessonDbId).catch((err) => {
           console.error('Failed to complete lesson:', err);
         });
+        // Refresh progress from backend to ensure UI shows latest data
+        if (refreshProgress) {
+          refreshProgress().catch((err) => {
+            console.error('Failed to refresh progress:', err);
+          });
+        }
       }
     } catch (err) {
       console.error('Failed to submit quiz attempt:', err);
@@ -359,19 +367,25 @@ export const JourneyPlayer = ({
         completeModule(course.id, activeModule.id, score);
       }
     }
-  }, [course.id, courseDbId, activeModule, activeQuizDbId, activeLessonDbId, activeModuleDbId, previewMode, completeModule, getAttemptsCount, startAssessment, submitAssessment, completeLesson]);
+  }, [course.id, courseDbId, activeModule, activeQuizDbId, activeLessonDbId, activeModuleDbId, previewMode, completeModule, getAttemptsCount, startAssessment, submitAssessment, completeLesson, refreshProgress, progressVersion]);
 
   // Handle back to content from quiz results
   const handleBackToContent = useCallback(() => {
     setShowQuiz(false);
     setContentSection('learn');
+    // Refresh progress from backend to ensure UI shows latest data
+    if (refreshProgress) {
+      refreshProgress().catch((err) => {
+        console.error('Failed to refresh progress:', err);
+      });
+    }
     setTimeout(() => {
       const courseContent = document.getElementById('course-content');
       if (courseContent) {
         courseContent.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
     }, 100);
-  }, []);
+  }, [refreshProgress]);
 
   // Handle continue to next lesson after quiz completion
   const handleContinueToNext = useCallback(() => {
@@ -382,6 +396,12 @@ export const JourneyPlayer = ({
       setShowQuiz(false);
       setContentSection('learn');
       setQuizAttempts(0);
+      // Refresh progress from backend to ensure UI shows latest data
+      if (refreshProgress) {
+        refreshProgress().catch((err) => {
+          console.error('Failed to refresh progress:', err);
+        });
+      }
       setTimeout(() => {
         const courseContent = document.getElementById('course-content');
         if (courseContent) {
@@ -389,42 +409,68 @@ export const JourneyPlayer = ({
         }
       }, 100);
     }
-  }, [activeModuleIndex, allLessons.length, stopSpeech]);
+  }, [activeModuleIndex, allLessons.length, stopSpeech, refreshProgress]);
 
   // Navigate to next module
   const goToNextModule = useCallback(() => {
     stopSpeech();
-    const nextIndex = activeModuleIndex + 1;
-    if (nextIndex < allLessons.length) {
-      setActiveModuleIndex(nextIndex);
-      setShowQuiz(false);
-      setContentSection('learn');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  }, [activeModuleIndex, allLessons.length, stopSpeech]);
+    setActiveModuleIndex(prev => {
+      const nextIndex = prev + 1;
+      if (nextIndex < allLessons.length) {
+        setShowQuiz(false);
+        setContentSection('learn');
+        // Refresh progress from backend to ensure UI shows latest data
+        if (refreshProgress) {
+          refreshProgress().catch((err) => {
+            console.error('Failed to refresh progress:', err);
+          });
+        }
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return nextIndex;
+      }
+      return prev;
+    });
+  }, [allLessons.length, stopSpeech, refreshProgress]);
 
   // Navigate to previous module
   const goToPrevModule = useCallback(() => {
     stopSpeech();
-    if (activeModuleIndex > 0) {
-      setActiveModuleIndex(prev => prev - 1);
-      setShowQuiz(false);
-      setContentSection('learn');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  }, [activeModuleIndex, stopSpeech]);
+    setActiveModuleIndex(prev => {
+      if (prev > 0) {
+        setShowQuiz(false);
+        setContentSection('learn');
+        // Refresh progress from backend to ensure UI shows latest data
+        if (refreshProgress) {
+          refreshProgress().catch((err) => {
+            console.error('Failed to refresh progress:', err);
+          });
+        }
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return prev - 1;
+      }
+      return prev;
+    });
+  }, [stopSpeech, refreshProgress]);
 
   // Select specific module
   const selectModule = useCallback((index) => {
     stopSpeech();
     const module = allLessons[index];
-    if (isModuleUnlocked(course.id, module.id)) {
+    // Use db_id if available, otherwise fall back to id
+    const moduleId = module.db_id || module.id;
+    if (isModuleUnlocked(course.id, moduleId)) {
       setActiveModuleIndex(index);
       setShowQuiz(false);
       setContentSection('learn');
       setQuizAttempts(0);
+      // Refresh progress from backend to ensure UI shows latest data
+      if (refreshProgress) {
+        refreshProgress().catch((err) => {
+          console.error('Failed to refresh progress:', err);
+        });
+      }
     }
-  }, [allLessons, course.id, isModuleUnlocked, stopSpeech]);
+  }, [allLessons, course.id, isModuleUnlocked, stopSpeech, refreshProgress]);
 
   if (!activeModule) return null;
 
@@ -598,10 +644,11 @@ export const JourneyPlayer = ({
                             {lessons.map((lesson, idx) => {
                               // Find the global index for this lesson
                               const globalIndex = allLessons.findIndex(l => l.id === lesson.id);
-                              const completed = isModuleCompleted(course.id, lesson.id);
-                              const unlocked = isModuleUnlocked(course.id, lesson.id);
+                              const lessonId = lesson.db_id || lesson.id;
+                              const completed = isModuleCompleted(course.id, lessonId);
+                              const unlocked = isModuleUnlocked(course.id, lessonId);
                               const isActive = globalIndex === activeModuleIndex;
-                              const progress = getModuleProgress(course.id, lesson.id);
+                              const progress = getModuleProgress(course.id, lessonId);
 
                               return (
                                 <motion.button
@@ -675,18 +722,10 @@ export const JourneyPlayer = ({
               />
             )}
 
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={`${activeModule.id}-${showQuiz ? 'quiz' : 'content'}`}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                transition={{ duration: 0.3 }}
-                className="w-full min-w-0"
-              >
-                {!showQuiz ? (
-                  /* Module Content */
-                  <div id="course-content" className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden w-full min-w-0">
+            <div className="w-full min-w-0">
+              {!showQuiz ? (
+                /* Module Content */
+                <div id="course-content" className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden w-full min-w-0">
                     {/* Module Header */}
                     <div className="p-4 sm:p-6 lg:p-8 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
                       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
@@ -1113,8 +1152,7 @@ export const JourneyPlayer = ({
                     </div>
                   </div>
                 )}
-              </motion.div>
-            </AnimatePresence>
+            </div>
           </div>
         </div>
       </div>
@@ -1176,41 +1214,43 @@ export const JourneyPlayer = ({
                           {doneCount}/{total}
                         </span>
                       </button>
-                    )}
+                  )}
 
-                    {!collapsed && (
-                      <div className={hasMultipleSections ? 'pl-3 ml-2 border-l border-slate-100 mt-1' : ''}>
+                  {!collapsed && (
+                    <div className={hasMultipleSections ? 'pl-3 ml-2 border-l border-slate-100 mt-1' : ''}>
                         {lessons.map((lesson, idx) => {
+                          // Find the global index for this lesson
                           const globalIndex = allLessons.findIndex(l => l.id === lesson.id);
-                          const completed = isModuleCompleted(course.id, lesson.id);
-                          const unlocked = isModuleUnlocked(course.id, lesson.id);
+                          const lessonId = lesson.db_id || lesson.id;
+                          const completed = isModuleCompleted(course.id, lessonId);
+                          const unlocked = isModuleUnlocked(course.id, lessonId);
                           const isActive = globalIndex === activeModuleIndex;
-                          const progress = getModuleProgress(course.id, lesson.id);
+                          const progress = getModuleProgress(course.id, lessonId);
 
-                          return (
-                            <button
-                              key={lesson.id}
-                              onClick={() => {
-                                selectModule(globalIndex);
-                                setMobileMenuOpen(false);
-                              }}
-                              disabled={!unlocked}
-                              className={`w-full text-left p-2.5 rounded-xl mb-1 transition-all flex items-center gap-3 ${
-                                isActive
-                                  ? 'bg-primary text-white shadow-lg shadow-primary/30'
+                        return (
+                          <button
+                            key={lesson.id}
+                            onClick={() => {
+                              selectModule(globalIndex);
+                              setMobileMenuOpen(false);
+                            }}
+                            disabled={!unlocked}
+                            className={`w-full text-left p-2.5 rounded-xl mb-1 transition-all flex items-center gap-3 ${
+                              isActive
+                                ? 'bg-primary text-white shadow-lg shadow-primary/30'
+                                : unlocked
+                                  ? 'hover:bg-slate-50'
+                                  : 'opacity-50 cursor-not-allowed'
+                            }`}
+                          >
+                            <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 text-xs font-bold ${
+                              completed
+                                ? 'bg-emerald-500 text-white'
+                                : isActive
+                                  ? 'bg-white/20 text-white'
                                   : unlocked
-                                    ? 'hover:bg-slate-50'
-                                    : 'opacity-50 cursor-not-allowed'
-                              }`}
-                            >
-                              <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 text-xs font-bold ${
-                                completed
-                                  ? 'bg-emerald-500 text-white'
-                                  : isActive
-                                    ? 'bg-white/20 text-white'
-                                    : unlocked
-                                      ? 'bg-slate-100 text-slate-600'
-                                      : 'bg-slate-100 text-slate-400'
+                                    ? 'bg-slate-100 text-slate-600'
+                                    : 'bg-slate-100 text-slate-400'
                               }`}>
                                 {completed ? (
                                   <CheckCircle2 className="w-3.5 h-3.5" />
