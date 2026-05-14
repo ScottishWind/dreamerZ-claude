@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useCurriculum } from '../hooks/useCurriculum';
@@ -116,9 +116,6 @@ export const LearnHub = ({ viewMode: initialViewMode = 'catalog' }) => {
   const { tools: apiTools, isLoading, error } = useCurriculum();
   const { courseEnrollments, loadCourseEnrollments, startCourse, deleteCourse } = useLearningProgress();
   const {
-    progress,
-    getToolCompletion,
-    getOverallCompletion,
     totalXP,
     getStreakInfo,
     resetProgress,
@@ -177,14 +174,41 @@ export const LearnHub = ({ viewMode: initialViewMode = 'catalog' }) => {
     });
   }, [apiTools, enrolledCourseIds]);
 
+  // Server-backed progress. Keyed by numeric course id so completion %
+  // is derived from the same StudentCourseEnrollment rows on every
+  // browser/device — the localStorage `useProgress` store was per-browser
+  // and caused cross-device numbers to disagree.
+  const enrollmentByCourseId = useMemo(() => {
+    const map = new Map();
+    courseEnrollments.forEach((enrollment) => map.set(enrollment.course_id, enrollment));
+    return map;
+  }, [courseEnrollments]);
+
+  const getCourseProgress = useCallback((course) => {
+    const courseDbId = getCourseDbId(course);
+    const enrollment = courseDbId ? enrollmentByCourseId.get(courseDbId) : null;
+    if (!enrollment) {
+      return { completion: 0, lessonsCompleted: 0, totalLessons: 0, status: null };
+    }
+    return {
+      completion: Math.round(Number(enrollment.completion_percent) || 0),
+      lessonsCompleted: enrollment.lessons_completed_count || 0,
+      totalLessons: enrollment.total_lessons_count || 0,
+      status: enrollment.status || null,
+    };
+  }, [enrollmentByCourseId]);
+
   const overallCompletion = useMemo(() => {
     if (enrolledTools.length === 0) return 0;
-    const totalModules = enrolledTools.reduce((sum, t) => sum + (t.modules?.length || 0), 0);
-    const completedModules = enrolledTools.reduce((sum, t) => {
-      return sum + Object.values(progress.completedModules?.[t.id] || {}).filter(m => m.completed).length;
-    }, 0);
-    return totalModules > 0 ? Math.round((completedModules / totalModules) * 100) : 0;
-  }, [enrolledTools, progress]);
+    let completed = 0;
+    let total = 0;
+    enrolledTools.forEach((tool) => {
+      const { lessonsCompleted, totalLessons } = getCourseProgress(tool);
+      completed += lessonsCompleted;
+      total += totalLessons;
+    });
+    return total > 0 ? Math.round((completed / total) * 100) : 0;
+  }, [enrolledTools, getCourseProgress]);
 
   const selectedCategoryData = categories.find(category => category.id === selectedCategory);
   const query = searchQuery.trim().toLowerCase();
@@ -402,9 +426,8 @@ export const LearnHub = ({ viewMode: initialViewMode = 'catalog' }) => {
               exit={{ opacity: 0, y: -20 }}
             >
               <ProgressDashboard
-                progress={progress}
-                getToolCompletion={getToolCompletion}
-                getOverallCompletion={getOverallCompletion}
+                getCourseProgress={getCourseProgress}
+                overallCompletion={overallCompletion}
                 resetProgress={resetProgress}
                 totalXP={totalXP}
                 streakInfo={streakInfo}

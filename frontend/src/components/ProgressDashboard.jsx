@@ -9,9 +9,8 @@ import { Button } from './ui/button';
 import { Progress } from './ui/progress';
 import { StreakBadge } from './StreakBadge';
 export const ProgressDashboard = ({
-  progress,
-  getToolCompletion,
-  getOverallCompletion,
+  getCourseProgress,
+  overallCompletion,
   resetProgress,
   totalXP,
   streakInfo,
@@ -22,15 +21,14 @@ export const ProgressDashboard = ({
 
   // Use API tools directly (no static data merge needed)
   const allCourses = apiTools;
-  const totalModulesCount = allCourses.reduce((sum, t) => sum + (t.modules?.length || 0), 0);
   const maxXP = allCourses.reduce((sum, t) => sum + (t.xpReward || t.totalXP || 0), 0);
-  const overallCompletion = getOverallCompletion(totalModulesCount);
-  
-  // Calculate completed modules count
-  const completedModulesCount = Object.values(progress.completedModules || {}).reduce(
-    (acc, toolModules) => acc + Object.values(toolModules).filter(m => m.completed).length,
-    0
-  );
+
+  // Server-backed per-course progress — derived from StudentCourseEnrollment
+  // rows so the numbers are identical on every browser/device.
+  const courseStats = allCourses.map((tool) => ({ tool, ...getCourseProgress(tool) }));
+  const totalLessonsCount = courseStats.reduce((sum, s) => sum + s.totalLessons, 0);
+  const completedLessonsCount = courseStats.reduce((sum, s) => sum + s.lessonsCompleted, 0);
+  const masteredCount = courseStats.filter((s) => s.totalLessons > 0 && s.completion === 100).length;
 
   // Handle reset with confirmation
   const handleReset = () => {
@@ -70,7 +68,7 @@ export const ProgressDashboard = ({
           </div>
           <Progress value={overallCompletion} className="h-3 bg-white/20" />
           <p className="mt-3 text-white/80 text-sm">
-            {completedModulesCount} of {totalModulesCount} modules completed
+            {completedLessonsCount} of {totalLessonsCount} lessons completed
           </p>
         </motion.div>
 
@@ -102,7 +100,7 @@ export const ProgressDashboard = ({
             <CheckCircle2 className="w-5 h-5 opacity-50" />
           </div>
           <div className="text-3xl font-bold">
-            {allCourses.filter(t => getToolCompletion(t.id, t.modules?.length) === 100).length}
+            {masteredCount}
           </div>
           <p className="text-white/80 text-sm">Courses Mastered</p>
           <p className="text-white/60 text-xs mt-1">of {allCourses.length} total</p>
@@ -119,16 +117,7 @@ export const ProgressDashboard = ({
         </div>
 
         <div className="divide-y divide-slate-100">
-          {allCourses.map((tool, index) => {
-            const moduleCount = tool.modules?.length || 0;
-            const completion = getToolCompletion(tool.id, moduleCount);
-            const toolProgress = progress.completedModules?.[tool.id] || {};
-            const completedCount = Object.values(toolProgress).filter(m => m.completed).length;
-            const totalAttempts = Object.values(toolProgress).reduce((acc, m) => acc + (m.attempts || 0), 0);
-            const avgScore = completedCount > 0
-              ? Math.round(Object.values(toolProgress).reduce((acc, m) => acc + (m.quizScore || 0), 0) / completedCount)
-              : 0;
-
+          {courseStats.map(({ tool, completion, lessonsCompleted, totalLessons }, index) => {
             return (
               <motion.div
                 key={tool.id}
@@ -165,15 +154,7 @@ export const ProgressDashboard = ({
                         </div>
 
                         <div className="flex items-center gap-4 text-xs text-slate-500">
-                          <span>{completedCount}/{moduleCount} modules</span>
-                          {completedCount > 0 && (
-                            <>
-                              <span>•</span>
-                              <span>Avg: {avgScore}%</span>
-                              <span>•</span>
-                              <span>{totalAttempts} attempts</span>
-                            </>
-                          )}
+                          <span>{lessonsCompleted}/{totalLessons} lessons</span>
                         </div>
 
                         {/* Progress Bar */}

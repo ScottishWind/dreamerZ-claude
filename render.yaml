@@ -63,3 +63,19 @@ services:
       - path: /*
         name: X-Content-Type-Options
         value: nosniff
+      # Hashed CRA build assets are content-addressed — cache them forever.
+      - path: /static/*
+        name: Cache-Control
+        value: "public, max-age=31536000, immutable"
+      # The app shell and the service worker itself must never be cached, or
+      # a deploy won't be picked up until the browser cache expires (the
+      # "needs multiple manual refreshes after deploy" bug).
+      - path: /index.html
+        name: Cache-Control
+        value: "no-cache, no-store, must-revalidate"
+      - path: /service-worker.js
+        name: Cache-Control
+        value: "no-cache, no-store, must-revalidate"
+      - path: /manifest.json
+        name: Cache-Control
+        value: "no-cache"
