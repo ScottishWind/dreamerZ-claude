@@ -74,7 +74,7 @@ export const ParentStudentDetail = () => {
         {/* Header */}
         <div className="mb-8">
           <Link
-            to="/parent"
+            to="/parentdashboard"
             className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-primary transition-colors mb-4"
           >
             <ArrowLeft className="w-4 h-4" />

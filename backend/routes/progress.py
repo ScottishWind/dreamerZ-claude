@@ -225,7 +225,7 @@ async def start_lesson(
         # Check if user is enrolled in the course
         enrollment = await get_course_enrollment(user_id, course_id, session)
         if not enrollment:
-            raise HTTPException(status_code=403, detail="You must enroll in this course before starting lessons")
+            raise HTTPException(status_code=403, detail="You must enroll the course before start learning")
 
         progress = await start_lesson_progress(
             user_id, course_id, module_id, lesson_id, session

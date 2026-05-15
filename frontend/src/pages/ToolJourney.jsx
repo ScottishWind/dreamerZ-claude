@@ -170,7 +170,7 @@ export const ToolJourney = () => {
             </div>
             <h1 className="text-2xl font-bold text-slate-900 mb-3">{tool.name}</h1>
             <p className="text-slate-600 mb-8">
-              You need to enroll in this course before you can start learning.
+              You need to enroll the course before you can start learning.
             </p>
             {error && (
               <div className="mb-6 p-4 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-sm">

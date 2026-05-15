@@ -125,14 +125,9 @@ const helplines = [
 ];
 
 export const Parents = () => {
-  const { isAuthenticated, isSupervisor } = useAuth();
+  const { isAuthenticated, isSupervisor, isCreator, isAdmin } = useAuth();
 
-  // Logged-in supervisors and admins land on the live dashboard rather than
-  // the marketing copy — same component the /parent route uses, so 'Add
-  // Learner', linked-learner cards, and progress drill-downs all work here.
-  if (isAuthenticated && isSupervisor && isSupervisor()) {
-    return <ParentDashboard />;
-  }
+  const canAccessDashboard = isAuthenticated && (isSupervisor() || isCreator() || isAdmin());
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-white to-slate-50 pt-24 pb-16">
@@ -147,14 +142,25 @@ export const Parents = () => {
             <Users className="w-4 h-4" />
             <span className="text-sm font-semibold">For Parents & Educators</span>
           </div>
-          
+
           <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-4">
             Safe AI Learning for Your Teen
           </h1>
           <p className="text-lg text-slate-600 max-w-2xl mx-auto">
-            DreamerZ_Beta helps teenagers (ages 12-16) learn about AI responsibly. 
+            DreamerZ_Beta helps teenagers (ages 12-16) learn about AI responsibly.
             Here's everything you need to know about what we teach and how we keep them safe.
           </p>
+
+          {canAccessDashboard && (
+            <div className="mt-6">
+              <Link to="/parentdashboard">
+                <Button className="bg-primary hover:bg-primary/90 text-white px-6 py-3 rounded-xl font-semibold shadow-lg shadow-primary/30">
+                  <Shield className="w-4 h-4 mr-2" />
+                  Go to Parent Dashboard
+                </Button>
+              </Link>
+            </div>
+          )}
         </motion.div>
 
         {/* What We Teach */}

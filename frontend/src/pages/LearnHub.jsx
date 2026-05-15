@@ -4,7 +4,9 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useCurriculum } from '../hooks/useCurriculum';
 import { useLearningProgress } from '../hooks/useLearningProgress';
 import { useProgress } from '../hooks/useProgress';
+import { useAuth } from '../hooks/useAuth';
 import { ProgressDashboard } from '../components/ProgressDashboard';
+import { toast } from 'sonner';
 import { BookOpen, Search, ArrowRight, Layers, HelpCircle, Signal, CheckCircle2, Sparkles, GraduationCap, Grid3X3, BarChart3 } from 'lucide-react';
 
 const CATEGORY_META = {
@@ -47,11 +49,29 @@ const getCourseStats = (course) => {
 
 const CourseCatalogCard = ({ course, index, isEnrolled, isEnrolling, onEnroll }) => {
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
   const stats = getCourseStats(course);
 
   const handlePrimaryAction = async () => {
     if (isEnrolled) {
       navigate(`/learn/${course.id}`);
+      return;
+    }
+    if (!isAuthenticated) {
+      toast.error('Please login to enroll and start learning', {
+        position: 'top-center',
+        duration: 3000,
+        style: {
+          background: 'linear-gradient(to right, #ef4444, #dc2626)',
+          color: '#fff',
+          fontWeight: '600',
+          fontSize: '16px',
+          padding: '16px 24px',
+          borderRadius: '12px',
+          boxShadow: '0 10px 25px rgba(239, 68, 68, 0.3)'
+        }
+      });
+      navigate('/login');
       return;
     }
     await onEnroll(course);
@@ -121,6 +141,7 @@ export const LearnHub = ({ viewMode: initialViewMode = 'catalog' }) => {
     resetProgress,
     clearCourseProgress
   } = useProgress();
+  const { isAuthenticated } = useAuth();
   const location = useLocation();
   const [viewMode, setViewMode] = useState(location.pathname === '/myprogress' ? 'progress' : initialViewMode); // 'catalog' or 'progress'
   const [selectedCategory, setSelectedCategory] = useState(null);
@@ -340,7 +361,7 @@ export const LearnHub = ({ viewMode: initialViewMode = 'catalog' }) => {
         </motion.div>
 
         {/* Colorful Progress Tracker Banner */}
-        {viewMode === 'catalog' && (
+        {viewMode === 'catalog' && isAuthenticated && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}

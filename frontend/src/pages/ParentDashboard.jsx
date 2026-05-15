@@ -500,7 +500,7 @@ const StudentCard = ({ student, onUnlink }) => {
                   </div>
                   {overview.enrollments.length > 3 && (
                     <Link
-                      to={`/parent/students/${student.user_id}`}
+                      to={`/parentdashboard/students/${student.user_id}`}
                       className="mt-3 inline-flex items-center gap-1 text-sm text-primary hover:underline"
                     >
                       View all courses

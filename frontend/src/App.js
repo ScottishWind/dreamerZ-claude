@@ -5,7 +5,7 @@ import { Toaster } from "./components/ui/sonner";
 import { Navbar } from "./components/Navbar";
 import { Footer } from "./components/Footer";
 import { ErrorBoundary, NotFound } from "./components/ErrorStates";
-import { RequireRole } from "./components/RequireRole";
+import { RequireAuth, RequireRole } from "./components/RequireRole";
 import { Landing } from "./pages/Landing";
 import { LearnHub } from "./pages/LearnHub";
 import { ToolJourney } from "./pages/ToolJourney";
@@ -68,14 +68,34 @@ function App() {
                   <Route path="/home" element={<Landing />} />
                   <Route path="/" element={<Navigate to="/home" replace />} />
                   <Route path="/learn" element={<LearnHub />} />
-                  <Route path="/learn/:toolId" element={<ToolJourney />} />
-                  <Route path="/myprogress" element={<LearnHub viewMode="progress" />} />
+                  <Route path="/learn/:toolId" element={
+                    <RequireAuth>
+                      <ToolJourney />
+                    </RequireAuth>
+                  } />
+                  <Route path="/myprogress" element={
+                    <RequireAuth>
+                      <LearnHub viewMode="progress" />
+                    </RequireAuth>
+                  } />
                   <Route path="/parents" element={<Parents />} />
-                  <Route path="/account" element={<Account />} />
+                  <Route path="/account" element={
+                    <RequireAuth>
+                      <Account />
+                    </RequireAuth>
+                  } />
                   <Route path="/login" element={<Login />} />
                   <Route path="/register" element={<Register />} />
-                  <Route path="/reset-password" element={<ChangePassword />} />
-                  <Route path="/forgot-password" element={<ForgotPassword />} />
+                  <Route path="/reset-password" element={
+                    <RequireAuth>
+                      <ChangePassword />
+                    </RequireAuth>
+                  } />
+                  <Route path="/forgot-password" element={
+                    <RequireAuth>
+                      <ForgotPassword />
+                    </RequireAuth>
+                  } />
                   <Route
                     path="/admin"
                     element={
@@ -85,13 +105,17 @@ function App() {
                     }
                   />
 
-                  {/* Parent dashboard routes — /parent and /parents both
-                      go through <Parents />, which internally renders the
-                      live dashboard for supervisors/admins and the marketing
-                      copy for everyone else. Same component, two URLs. */}
-                  <Route path="/parent" element={<Parents />} />
+                  {/* Parent dashboard routes */}
                   <Route
-                    path="/parent/students/:studentUserId"
+                    path="/parentdashboard"
+                    element={
+                      <RequireRole roles={["supervisor", "admin", "creator"]}>
+                        <ParentDashboard />
+                      </RequireRole>
+                    }
+                  />
+                  <Route
+                    path="/parentdashboard/students/:studentUserId"
                     element={
                       <RequireRole roles={["supervisor", "admin"]}>
                         <ParentStudentDetail />
@@ -106,6 +130,7 @@ function App() {
                   <Route path="/prompt-lab" element={<Navigate to="/learn" replace />} />
                   <Route path="/profile" element={<Navigate to="/account" replace />} />
                   <Route path="/settings" element={<Navigate to="/account" replace />} />
+                  <Route path="/parent" element={<Navigate to="/parentdashboard" replace />} />
 
                   <Route path="*" element={<NotFound />} />
                 </Routes>

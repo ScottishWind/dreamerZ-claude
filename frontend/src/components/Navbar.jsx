@@ -18,12 +18,8 @@ export const Navbar = () => {
 
   const navLinks = [
     { path: '/learn', label: 'Learn', icon: BookOpen },
+    { path: '/parents', label: 'For Parents', icon: Users },
   ];
-
-  // Add "For Parents" for supervisors and admins
-  if (isSupervisor() || isAdmin()) {
-    navLinks.push({ path: '/parents', label: 'For Parents', icon: Users });
-  }
 
   // Add "Admin" for creators and admins
   if (isCreator() || isAdmin()) {
