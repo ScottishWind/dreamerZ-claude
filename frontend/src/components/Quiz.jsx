@@ -551,14 +551,24 @@ export const Quiz = ({ questions, onComplete, onBackToContent, onContinueToNext,
           className="flex flex-col sm:flex-row gap-3 justify-center"
         >
           {!passed ? (
-            <Button
-              onClick={handleRetry}
-              className="bg-gradient-to-r from-primary to-violet-600 hover:from-primary/90 hover:to-violet-600/90 text-white px-8 py-4 rounded-2xl font-semibold text-lg shadow-lg shadow-primary/30 transition-all"
-              data-testid="quiz-retry-btn"
-            >
-              <RotateCcw className="w-5 h-5 mr-2" />
-              Try Again
-            </Button>
+            <>
+              <Button
+                onClick={handleRetry}
+                className="bg-gradient-to-r from-primary to-violet-600 hover:from-primary/90 hover:to-violet-600/90 text-white px-8 py-4 rounded-2xl font-semibold text-lg shadow-lg shadow-primary/30 transition-all"
+                data-testid="quiz-retry-btn"
+              >
+                <RotateCcw className="w-5 h-5 mr-2" />
+                Try Again
+              </Button>
+              <Button
+                onClick={() => onBackToContent ? onBackToContent() : onComplete(finalScore, passed, currentAttemptNumber)}
+                variant="outline"
+                className="border-slate-200 text-slate-700 hover:bg-slate-50 px-8 py-4 rounded-2xl font-semibold text-lg transition-all"
+                data-testid="quiz-back-btn"
+              >
+                Back to Content
+              </Button>
+            </>
           ) : (
             <Button
               onClick={() => {
@@ -570,18 +580,10 @@ export const Quiz = ({ questions, onComplete, onBackToContent, onContinueToNext,
               className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white px-8 py-4 rounded-2xl font-semibold text-lg shadow-lg shadow-emerald-200 transition-all"
               data-testid="quiz-continue-btn"
             >
-              Continue
+              Continue Next Lesson
               <ArrowRight className="w-5 h-5 ml-2" />
             </Button>
           )}
-          <Button
-            onClick={() => onBackToContent ? onBackToContent() : onComplete(finalScore, passed, currentAttemptNumber)}
-            variant="outline"
-            className="border-slate-200 text-slate-700 hover:bg-slate-50 px-8 py-4 rounded-2xl font-semibold text-lg transition-all"
-            data-testid="quiz-back-btn"
-          >
-            Back to Content
-          </Button>
         </motion.div>
       </motion.div>
     );
