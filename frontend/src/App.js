@@ -31,7 +31,7 @@ const ToolRedirect = () => {
 };
 
 function App() {
-  // Keepalive: ping backend health endpoint every 5 minutes to prevent Render from shutting down
+  // Keepalive: ping backend health endpoint every 1 minute to prevent Render from shutting down
   useEffect(() => {
     const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
     const pingBackend = async () => {
@@ -45,9 +45,9 @@ function App() {
       }
     };
 
-    // Ping immediately on mount, then every 5 minutes
+    // Ping immediately on mount, then every 1 minute
     pingBackend();
-    const interval = setInterval(pingBackend, 5 * 60 * 1000); // 5 minutes
+    const interval = setInterval(pingBackend, 1 * 60 * 1000); // 1 minute
 
     return () => clearInterval(interval);
   }, []);
