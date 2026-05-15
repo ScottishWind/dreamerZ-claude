@@ -1,12 +1,11 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ChevronLeft, ChevronRight, ChevronDown, Lock, CheckCircle2,
   BookOpen, Lightbulb, Rocket, Play, Award,
-  Clock, Sparkles, ArrowLeft, Home, Volume2,
-  Languages, Mic, MessageCircle, Trophy, AlertTriangle, Calendar,
-  FileText, Download, Paperclip, HelpCircle
+  Clock, Sparkles, ArrowLeft, Volume2,
+  Languages, Mic, MessageCircle,
+  FileText, Paperclip, HelpCircle
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Quiz } from './Quiz';
@@ -18,92 +17,9 @@ import { CoursePreviewVideo } from './CoursePreviewVideo';
 import { MarkdownContent } from './MarkdownContent';
 import { useLearningProgress } from '../hooks/useLearningProgress';
 
-const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
-
 const numericId = (value) => {
   const numberValue = Number(value);
   return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : null;
-};
-
-// ── Inline Media Attachments Component ─────────────────
-const MediaAttachments = ({ assets, variant = 'inline' }) => {
-  if (!assets || assets.length === 0) return null;
-
-  // Prefer the direct Cloudinary URL when available (new flow). Older rows
-  // that pre-date Cloudinary integration fall back to the backend proxy at
-  // /api/content/media/{id}, which 302-redirects to the actual storage.
-  const assetUrl = (asset) => asset.cloudinary_url || `${API_BASE}/api/content/media/${asset.id}`;
-
-  const renderAsset = (asset) => {
-    // Be tolerant of legacy rows that used `type` instead of `asset_type`.
-    const kind = asset.asset_type || asset.type;
-
-    if (kind === 'video') {
-      return (
-        <video
-          key={asset.id}
-          controls
-          preload="metadata"
-          poster={asset.poster_url || undefined}
-          className="w-full rounded-xl bg-black"
-        >
-          {asset.streaming_url && (
-            <source src={asset.streaming_url} type="application/x-mpegURL" />
-          )}
-          <source src={assetUrl(asset)} type={asset.mime_type || 'video/mp4'} />
-          Your browser cannot play this video.
-        </video>
-      );
-    }
-
-    // Image / document — same compact row in both view modes.
-    const isImage = kind === 'image';
-    const url = assetUrl(asset);
-    return (
-      <a
-        key={asset.id}
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="flex items-center gap-3 bg-white border border-slate-200 rounded-lg px-3 py-2 hover:border-primary/40 hover:bg-slate-50 transition-all group"
-      >
-        {isImage ? (
-          <img
-            src={url}
-            alt={asset.alt_text || asset.original_filename}
-            className="w-10 h-10 rounded object-cover flex-shrink-0"
-            loading="lazy"
-          />
-        ) : (
-          <FileText className="w-5 h-5 text-slate-400 flex-shrink-0" />
-        )}
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-slate-700 truncate group-hover:text-primary transition-colors">
-            {asset.original_filename}
-          </p>
-          <p className="text-xs text-slate-400">
-            {(asset.format || asset.file_extension || '').toString().toUpperCase()}
-            {asset.file_size_bytes ? ` · ${(asset.file_size_bytes / 1024).toFixed(0)} KB` : ''}
-          </p>
-        </div>
-        <Download className="w-4 h-4 text-slate-400 group-hover:text-primary flex-shrink-0" />
-      </a>
-    );
-  };
-
-  if (variant === 'standalone') {
-    return <div className="space-y-3">{assets.map(renderAsset)}</div>;
-  }
-
-  return (
-    <div className="mt-6 pt-6 border-t border-slate-100">
-      <h4 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
-        <FileText className="w-4 h-4 text-slate-500" />
-        Lesson Materials
-      </h4>
-      <div className="space-y-3">{assets.map(renderAsset)}</div>
-    </div>
-  );
 };
 
 export const JourneyPlayer = ({
@@ -120,7 +36,6 @@ export const JourneyPlayer = ({
   previewMode = false,
 }) => {
   const course = courseProp || tool;
-  const navigate = useNavigate();
   const { startLesson, sendLessonHeartbeat, completeLesson, startAssessment, submitAssessment, getAttemptsCount } = useLearningProgress();
   const heartbeatIntervalRef = useRef(null);
 
@@ -443,14 +358,11 @@ export const JourneyPlayer = ({
   const hasVocab = activeModule?.content?.vocab?.length > 0;
   const hasSpeak = activeModule?.content?.dialogue?.length > 0 || activeModule?.content?.speaking_task;
   const isWeeklyTest = activeModule?.is_weekly_test;
-  const moduleDay = activeModule?.day;
-  const moduleWeek = activeModule?.week;
 
   const quizQuestions = Array.isArray(activeModule.quiz)
     ? activeModule.quiz
     : (activeModule.quiz?.questions || []);
   const hasQuiz = quizQuestions.length > 0;
-  const hasMedia = (activeModule.media_assets || []).length > 0;
   const quizPassingScore = (() => {
     const raw = activeModule.quiz?.passing_score;
     const n = Number(raw);
@@ -461,10 +373,10 @@ export const JourneyPlayer = ({
     { id: 'learn', label: 'Learn', icon: BookOpen, color: 'primary' },
     { id: 'example', label: 'Example', icon: Lightbulb, color: 'amber' },
     { id: 'activity', label: 'Try It', icon: Rocket, color: 'emerald' },
+    { id: 'quiz', label: 'Quiz', icon: HelpCircle, color: 'violet' },
     ...(hasVocab ? [{ id: 'vocab', label: 'Vocab', icon: Languages, color: 'violet' }] : []),
     ...(hasSpeak ? [{ id: 'speak', label: 'Speak', icon: Mic, color: 'rose' }] : []),
     { id: 'study', label: 'Study Materials', icon: Paperclip, color: 'sky' },
-    { id: 'quiz', label: 'Quiz', icon: HelpCircle, color: 'violet' },
   ];
 
   return (
@@ -595,7 +507,7 @@ export const JourneyPlayer = ({
 
                         {!collapsed && (
                           <div className={hasMultipleSections ? 'pl-3 ml-2 border-l border-slate-100 mt-1' : ''}>
-                            {lessons.map((lesson, idx) => {
+                            {lessons.map((lesson, _idx) => {
                               // Find the global index for this lesson
                               const globalIndex = allLessons.findIndex(l => l.id === lesson.id);
                               const completed = isModuleCompleted(course.id, lesson.id);
@@ -1058,6 +970,17 @@ export const JourneyPlayer = ({
                           <span className="hidden sm:inline">Previous</span>
                           <span className="sm:hidden">Prev</span>
                         </Button>
+                        {hasQuiz && (
+                          <Button
+                            onClick={() => {
+                              setContentSection('quiz');
+                            }}
+                            className="flex-1 sm:flex-none bg-gradient-to-r from-violet-600 to-violet-500 hover:from-violet-700 hover:to-violet-600 text-white px-4 sm:px-6 text-sm sm:text-base font-semibold shadow-lg shadow-violet-500/30"
+                          >
+                            <HelpCircle className="w-4 h-4 mr-1 sm:mr-2" />
+                            <span>Take Quiz</span>
+                          </Button>
+                        )}
                         <Button
                           onClick={goToNextModule}
                           disabled={activeModuleIndex >= allLessons.length - 1}
@@ -1180,7 +1103,7 @@ export const JourneyPlayer = ({
 
                     {!collapsed && (
                       <div className={hasMultipleSections ? 'pl-3 ml-2 border-l border-slate-100 mt-1' : ''}>
-                        {lessons.map((lesson, idx) => {
+                        {lessons.map((lesson, _idx) => {
                           const globalIndex = allLessons.findIndex(l => l.id === lesson.id);
                           const completed = isModuleCompleted(course.id, lesson.id);
                           const unlocked = isModuleUnlocked(course.id, lesson.id);
