@@ -65,7 +65,8 @@ function App() {
               <main className="flex-grow pt-16">
                 <Routes>
                   {/* Primary routes */}
-                  <Route path="/" element={<Landing />} />
+                  <Route path="/home" element={<Landing />} />
+                  <Route path="/" element={<Navigate to="/home" replace />} />
                   <Route path="/learn" element={<LearnHub />} />
                   <Route path="/learn/:toolId" element={<ToolJourney />} />
                   <Route path="/myprogress" element={<LearnHub viewMode="progress" />} />
