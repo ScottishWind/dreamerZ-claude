@@ -17,8 +17,8 @@ export const Footer = () => {
               </span>
             </Link>
             <p className="text-sm leading-relaxed max-w-md">
-              Teaching Indian teenagers (ages 12-16) to use AI responsibly. 
-              Learn prompt engineering, understand AI tools, and build future-ready skills.
+              Teaching learners to use AI, responsibly & ethically.
+              Learn Prompt Engineering, understand AI tools, and build future-ready skills.
             </p>
           </div>
 
