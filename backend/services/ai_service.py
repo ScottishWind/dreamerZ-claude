@@ -75,7 +75,7 @@ ROLEPLAY_SYSTEM_PROMPTS = {
         "Keep replies to 1-3 sentences."
     ),
     "teacher": (
-        "You are a friendly English teacher helping a Bengali teen practice spoken English. "
+        "You are a friendly English teacher helping a Bengali teen practice conversational English. "
         "Ask questions, respond to their answers, and give encouraging corrections."
     ),
     "shopkeeper": (

@@ -146,7 +146,7 @@ def build_welcome_email(username: str) -> str:
                 Hey {username} 👋
               </p>
               <p style="color:#475569; font-size:15px; line-height:1.7; margin:0 0 28px;">
-                We're thrilled to have you on board! DreamerZ is built especially for Indian teenagers who want to master AI tools and spoken English. Here's how to get started:
+                We're thrilled to have you on board! DreamerZ is built especially for Indian teenagers who want to master AI tools and conversational English. Here's how to get started:
               </p>
 
               <!-- STEP 1 -->
@@ -157,7 +157,7 @@ def build_welcome_email(username: str) -> str:
                   </td>
                   <td style="padding-left:12px;">
                     <p style="color:#1e293b; font-size:15px; font-weight:600; margin:0 0 4px;">Explore the Learning Hub</p>
-                    <p style="color:#64748b; font-size:14px; margin:0; line-height:1.6;">Browse AI tools like ChatGPT, Claude, and Gemini — or jump into our 30-day Spoken English course.</p>
+                    <p style="color:#64748b; font-size:14px; margin:0; line-height:1.6;">Browse AI tools like ChatGPT, Claude, and Gemini — or jump into our 30-day Conversational English course.</p>
                   </td>
                 </tr>
               </table>
@@ -236,7 +236,7 @@ def build_welcome_email(username: str) -> str:
                           <span style="font-size:28px;">🗣️</span>
                         </td>
                         <td style="padding-left:10px;">
-                          <p style="color:#9f1239; font-size:14px; font-weight:700; margin:0 0 3px;">Spoken English</p>
+                          <p style="color:#9f1239; font-size:14px; font-weight:700; margin:0 0 3px;">Conversational English</p>
                           <p style="color:#f43f5e; font-size:13px; margin:0;">30-day journey &middot; AI roleplay &middot; Bengali meanings</p>
                         </td>
                         <td width="60" align="right" valign="middle">

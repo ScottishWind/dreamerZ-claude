@@ -97,8 +97,8 @@ export const Landing = () => {
   return (
     <>
       <SEO
-        title="Learn AI & Spoken English — DreamerZ"
-        description="Free AI and Spoken English courses for Bengali teenagers. Real lessons, real progress tracking, no payments ever."
+        title="Learn AI & Conversational English — DreamerZ"
+        description="Free AI and Conversational English courses for Bengali teenagers. Real lessons, real progress tracking, no payments ever."
       />
       <div className="min-h-screen bg-white">
 
@@ -226,7 +226,7 @@ export const Landing = () => {
                   {[
                     'Write your first AI prompt — and improve it iteratively',
                     'Spot AI hallucinations before you act on them',
-                    'Practise spoken English with an AI roleplay partner',
+                    'Practise conversational English with an AI roleplay partner',
                     'Earn XP and build a streak you can show your parents',
                   ].map((line) => (
                     <li key={line} className="flex items-start gap-2 text-sm text-slate-700">

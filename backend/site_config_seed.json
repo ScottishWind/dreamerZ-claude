@@ -28,7 +28,7 @@
     },
     {
       "id": "spoken-english",
-      "name": "Spoken English",
+      "name": "Conversational English",
       "tagline": "30-day course built for Bengali teens",
       "price": 299,
       "original_price": 799,
@@ -58,7 +58,7 @@
     {
       "id": "faq-age",
       "question": "What age group is this for?",
-      "answer": "DreamerZ is designed for Bengali teenagers aged 12-18, but anyone interested in learning AI tools or improving their spoken English can benefit.",
+      "answer": "DreamerZ is designed for Bengali teenagers aged 12-18, but anyone interested in learning AI tools or improving their conversational English can benefit.",
       "sort_order": 1,
       "is_active": true
     },

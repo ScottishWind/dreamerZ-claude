@@ -67,7 +67,7 @@
     },
     {
       "id": "spoken-english-30day",
-      "name": "Spoken English — 30 Days",
+      "name": "Conversational English — 30 Days",
       "tagline": "From hesitation to confidence",
       "icon": "🗣️",
       "category_id": "spoken-writing-english",
@@ -76,7 +76,7 @@
         "gradient": "from-amber-500 to-orange-500",
         "lightBg": "bg-amber-50"
       },
-      "description": "A 30-day spoken English course for West Bengal teens aged 13–18. Daily lessons with vocabulary, dialogues, speaking tasks, and quizzes — Duolingo-style.",
+      "description": "A 30-day conversational English course for West Bengal teens aged 13–18. Daily lessons with vocabulary, dialogues, speaking tasks, and quizzes — Duolingo-style.",
       "totalXP": 3000
     }
   ],
@@ -2035,7 +2035,7 @@
         ],
         "speaking_task": "Tell the AI about 2–3 of your hobbies and ask what the AI (playing a friend) enjoys. Have a natural back-and-forth conversation about interests.",
         "bengali_tip": "Bengali speakers often say 'I am having a hobby of cricket' — this is incorrect. Simply say 'I love cricket' or 'Cricket is my hobby.' Keep it short and natural.",
-        "micro_grammar": "'I'm into [noun/verb-ing]' = I am very interested in something. Examples: 'I'm into cricket.' / 'I'm into reading.' This is very common in everyday spoken English.",
+        "micro_grammar": "'I'm into [noun/verb-ing]' = I am very interested in something. Examples: 'I'm into cricket.' / 'I'm into reading.' This is very common in everyday conversational English.",
         "quiz": {
           "questions": [
             {
@@ -4910,7 +4910,7 @@
             "Skip translation"
           ],
           "safeFeedback": {
-            "pass": "🎉🏆 CONGRATULATIONS! You've completed the 30-Day Spoken English Course! You're now an English speaker — not a learner. Keep going!",
+            "pass": "🎉🏆 CONGRATULATIONS! You've completed the 30-Day Conversational English Course! You're now an English speaker — not a learner. Keep going!",
             "fail": "You're so close! Review your weakest areas and try the final test one more time. You can do this!"
           }
         }
