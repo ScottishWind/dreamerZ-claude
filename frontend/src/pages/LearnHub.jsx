@@ -7,7 +7,7 @@ import { useProgress } from '../hooks/useProgress';
 import { useAuth } from '../hooks/useAuth';
 import { ProgressDashboard } from '../components/ProgressDashboard';
 import { toast } from 'sonner';
-import { BookOpen, Search, ArrowRight, Layers, HelpCircle, Signal, CheckCircle2, Sparkles, GraduationCap, Grid3X3, BarChart3 } from 'lucide-react';
+import { BookOpen, Search, ArrowRight, ArrowLeft, Layers, HelpCircle, Signal, CheckCircle2, Sparkles, GraduationCap, Grid3X3, BarChart3 } from 'lucide-react';
 
 const CATEGORY_META = {
   'ai-learning': {
@@ -338,35 +338,39 @@ export const LearnHub = ({ viewMode: initialViewMode = 'catalog' }) => {
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-6 sm:mb-8">
           {!selectedCategory && (
             <>
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-sm font-semibold mb-4">
-                <GraduationCap className="w-4 h-4" />
-                {viewMode === 'progress' ? 'Learning Tracker' : 'Learn Home'}
-              </div>
+              {viewMode === 'progress' && (
+                <button
+                  type="button"
+                  onClick={() => navigate('/learn')}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:text-primary hover:border-primary/30 transition-colors mb-4 text-sm font-medium"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  Back to All Learning
+                </button>
+              )}
+              {viewMode !== 'progress' && (
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-sm font-semibold mb-4">
+                  <GraduationCap className="w-4 h-4" />
+                  Learn Home
+                </div>
+              )}
+              
               <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
                 <div>
                   <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-3">
-                    {viewMode === 'progress' ? 'My Progress' : 'All Learning'}
+                    {viewMode === 'progress' ? 'My Progress  ' : 'All Learning  '}
                   </h1>
-                  <p className="text-slate-600 max-w-2xl text-lg">
+                  <p className="text-slate-600 max-w-6xl text-lg">
                     {viewMode === 'progress'
                       ? 'Monitor your courses, celebrate milestones, and visualize your journey toward mastering new skills in real time.'
                       : 'Choose a learning category first. Then enroll in a course to unlock the full course player and begin progress tracking.'}
                   </p>
                 </div>
-                {viewMode === 'progress' && (
-                  <button
-                    type="button"
-                    onClick={() => navigate('/learn')}
-                    className="px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:text-primary hover:border-primary/30 transition-colors"
-                  >
-                    Back to All Learning
-                  </button>
-                )}
               </div>
             </>
           )}
           {selectedCategory && (
-            <div className="flex items-center justify-end">
+            <div className="flex items-center justify-start">
               {viewMode === 'catalog' && (
                 <button
                   type="button"
@@ -374,8 +378,9 @@ export const LearnHub = ({ viewMode: initialViewMode = 'catalog' }) => {
                     navigate('/learn');
                     setSearchQuery('');
                   }}
-                  className="px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:text-primary hover:border-primary/30 transition-colors"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:text-primary hover:border-primary/30 transition-colors mb-4 text-sm font-medium"
                 >
+                  <ArrowLeft className="w-4 h-4" />
                   Back to All Learning
                 </button>
               )}
@@ -383,8 +388,9 @@ export const LearnHub = ({ viewMode: initialViewMode = 'catalog' }) => {
                 <button
                   type="button"
                   onClick={() => navigate('/learn')}
-                  className="px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:text-primary hover:border-primary/30 transition-colors"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:text-primary hover:border-primary/30 transition-colors mb-4 text-sm font-medium"
                 >
+                  <ArrowLeft className="w-4 h-4" />
                   Back to All Learning
                 </button>
               )}
