@@ -336,43 +336,64 @@ export const LearnHub = ({ viewMode: initialViewMode = 'catalog' }) => {
     <div className="min-h-screen bg-slate-50 pt-16 sm:pt-20 pb-12 sm:pb-16">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-6 sm:mb-8">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-sm font-semibold mb-4">
-            <GraduationCap className="w-4 h-4" />
-            Learn Home
-          </div>
-          <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
-            <div>
-              <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-3">All Learning</h1>
-              <p className="text-slate-600 max-w-2xl text-lg">
-                Choose a learning category first. Then enroll in a course to unlock the full course player and begin progress tracking.
-              </p>
+          {!selectedCategory && (
+            <>
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-sm font-semibold mb-4">
+                <GraduationCap className="w-4 h-4" />
+                {viewMode === 'progress' ? 'Learning Tracker' : 'Learn Home'}
+              </div>
+              <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
+                <div>
+                  <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-3">
+                    {viewMode === 'progress' ? 'My Progress' : 'All Learning'}
+                  </h1>
+                  <p className="text-slate-600 max-w-2xl text-lg">
+                    {viewMode === 'progress'
+                      ? 'Monitor your courses, celebrate milestones, and visualize your journey toward mastering new skills in real time.'
+                      : 'Choose a learning category first. Then enroll in a course to unlock the full course player and begin progress tracking.'}
+                  </p>
+                </div>
+                {viewMode === 'progress' && (
+                  <button
+                    type="button"
+                    onClick={() => navigate('/learn')}
+                    className="px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:text-primary hover:border-primary/30 transition-colors"
+                  >
+                    Back to All Learning
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+          {selectedCategory && (
+            <div className="flex items-center justify-end">
+              {viewMode === 'catalog' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigate('/learn');
+                    setSearchQuery('');
+                  }}
+                  className="px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:text-primary hover:border-primary/30 transition-colors"
+                >
+                  Back to All Learning
+                </button>
+              )}
+              {viewMode === 'progress' && (
+                <button
+                  type="button"
+                  onClick={() => navigate('/learn')}
+                  className="px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:text-primary hover:border-primary/30 transition-colors"
+                >
+                  Back to All Learning
+                </button>
+              )}
             </div>
-            {viewMode === 'catalog' && selectedCategory && (
-              <button
-                type="button"
-                onClick={() => {
-                  navigate('/learn');
-                  setSearchQuery('');
-                }}
-                className="px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:text-primary hover:border-primary/30 transition-colors"
-              >
-                Back to Learning Home
-              </button>
-            )}
-            {viewMode === 'progress' && (
-              <button
-                type="button"
-                onClick={() => navigate('/learn')}
-                className="px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:text-primary hover:border-primary/30 transition-colors"
-              >
-                Back to Learning Home
-              </button>
-            )}
-          </div>
+          )}
         </motion.div>
 
         {/* Colorful Progress Tracker Banner */}
-        {viewMode === 'catalog' && isAuthenticated && (
+        {viewMode === 'catalog' && isAuthenticated && !selectedCategory && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -616,7 +637,7 @@ export const LearnHub = ({ viewMode: initialViewMode = 'catalog' }) => {
                       <p className="text-slate-500 mt-1">{selectedCategoryData?.totalCourses || 0} courses available. Enroll to begin tracking progress.</p>
                     </div>
                   </div>
-                  <div className="relative w-full lg:w-80">
+                  <div className="relative w-full lg:w-96">
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <input
                       value={searchQuery}
