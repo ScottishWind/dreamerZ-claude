@@ -191,7 +191,13 @@ export const ProgressProvider = ({ children }) => {
               completed,
               quizScore: lp.best_score || 0,
               bestScore: lp.best_score || 0,
-              attempts: lp.visit_count || 0,
+              // `visit_count` increments every time a lesson is opened
+              // (including plain page refreshes), so it isn't a meaningful
+              // "attempts" number for the learner. There is no cheap
+              // per-lesson quiz-attempt counter today, so we surface 0
+              // here — the UI hides the line when there's no real attempt
+              // data to show.
+              attempts: 0,
               completedAt: lp.completed_at || null,
             };
             if (completed && lp.completed_at) {

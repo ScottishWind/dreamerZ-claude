@@ -561,9 +561,9 @@ export const JourneyPlayer = ({
                                     }`}>
                                       {lesson.title}
                                     </div>
-                                    {progress && (
+                                    {progress && progress.bestScore > 0 && (
                                       <div className={`text-[11px] ${isActive ? 'text-white/70' : 'text-slate-400'}`}>
-                                        Best: {progress.quizScore}% • {progress.attempts} attempt{progress.attempts !== 1 ? 's' : ''}
+                                        Best: {progress.bestScore}%
                                       </div>
                                     )}
                                   </div>
@@ -1158,9 +1158,9 @@ export const JourneyPlayer = ({
                                 }`}>
                                   {lesson.title}
                                 </div>
-                                {progress && (
+                                {progress && progress.bestScore > 0 && (
                                   <div className={`text-[11px] ${isActive ? 'text-white/70' : 'text-slate-400'}`}>
-                                    Best: {progress.quizScore}% • {progress.attempts} attempt{progress.attempts !== 1 ? 's' : ''}
+                                    Best: {progress.bestScore}%
                                   </div>
                                 )}
                               </div>
