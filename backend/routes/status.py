@@ -16,7 +16,7 @@ router = APIRouter(tags=["status"])
 
 @router.get("/")
 async def root():
-    return {"message": "DreamerZ Beta API", "version": "1.0.0"}
+    return {"message": "DreamerZ Lite API", "version": "1.0.0"}
 
 
 @router.post("/status", response_model=StatusCheckSchema)

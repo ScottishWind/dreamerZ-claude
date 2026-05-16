@@ -95,7 +95,7 @@ export const SettingsPage = () => {
     <>
       <SEO 
         title="Settings" 
-        description="Manage your DreamerZ_Beta progress, export data, and configure your learning experience."
+        description="Manage your DreamerZ_Lite progress, export data, and configure your learning experience."
       />
       
       <div className="min-h-screen bg-slate-50 pt-24 pb-16">

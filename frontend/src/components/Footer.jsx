@@ -13,7 +13,7 @@ export const Footer = () => {
                 <BookOpen className="w-5 h-5 text-white" />
               </div>
               <span className="font-bold text-lg text-white">
-                DreamerZ<span className="text-primary">_Beta</span>
+                DreamerZ<span className="text-primary">_Lite</span>
               </span>
             </Link>
             <p className="text-sm leading-relaxed max-w-md">
@@ -65,7 +65,7 @@ export const Footer = () => {
         {/* Bottom Bar */}
         <div className="border-t border-slate-800 pt-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p className="text-sm text-slate-500">
-            © {new Date().getFullYear()} DreamerZ_Beta. Made with{' '}
+            © {new Date().getFullYear()} DreamerZ_Lite. Made with{' '}
             <Heart className="w-3 h-3 inline text-rose-500" /> for AI & Conversational-English learners.
           </p>
           

@@ -1,6 +1,6 @@
 {
   "short_name": "DreamerZ",
-  "name": "DreamerZ Beta",
+  "name": "DreamerZ Lite",
   "icons": [
     {
       "src": "/icons/icon-192x192.png",
@@ -23,6 +23,6 @@
   "display": "standalone",
   "background_color": "#000000",
   "theme_color": "#000000",
-  "description": "AI learning platform for teenagers with safe, installable web experience.",
+  "description": "AI and Conversational English learning platform with a safe, installable web experience.",
   "orientation": "portrait"
 }

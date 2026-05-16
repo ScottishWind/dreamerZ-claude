@@ -61,7 +61,7 @@ export const Login = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 pt-24 pb-16">
-      <SEO title="Login" description="Login to DreamerZ_Beta to save your progress and access your account." />
+      <SEO title="Login" description="Login to DreamerZ_Lite to save your progress and access your account." />
       <div className="max-w-xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-10 mt-10">
           <h1 className="text-3xl font-bold text-slate-900 mb-3">Welcome back</h1>

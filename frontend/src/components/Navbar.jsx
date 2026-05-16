@@ -36,7 +36,7 @@ export const Navbar = () => {
               <BookOpen className="w-5 h-5 text-white" />
             </div>
             <span className="font-bold text-lg text-slate-900">
-              DreamerZ<span className="text-primary">_Beta</span>
+              DreamerZ<span className="text-primary">_Lite</span>
             </span>
           </Link>
 

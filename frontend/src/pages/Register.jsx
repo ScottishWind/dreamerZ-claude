@@ -149,7 +149,7 @@ export const Register = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 pt-24 pb-16">
-      <SEO title="Register" description="Create a DreamerZ_Beta account with your name, email, and password." />
+      <SEO title="Register" description="Create a DreamerZ_Lite account with your name, email, and password." />
       <div className="max-w-xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-10 mt-10">
           <h1 className="text-3xl font-bold text-slate-900 mb-3">Create your account</h1>
