@@ -2,6 +2,7 @@
 
 import logging
 import re
+from typing import Optional
 
 from config import ANTHROPIC_API_KEY, CLAUDE_MODEL
 
@@ -112,11 +113,60 @@ TUTOR_SYSTEM_PROMPT = (
 )
 
 
+# ── Per-tool persona overlay ──────────────────────────────
+#
+# All Lab chats route through one backend (Anthropic Claude) but we layer a
+# tool-specific style guide on top of the tutor prompt so the response
+# *shape* roughly matches what the learner expects from the tool they're
+# studying. This is honestly disclosed in the UI — we're not pretending to
+# be the other vendor's model, just mimicking its answer style for didactic
+# purposes.
+TOOL_PERSONAS = {
+    "chatgpt": (
+        "Answer in ChatGPT's signature style: warm and conversational, "
+        "with light markdown (a short intro paragraph, then a bulleted "
+        "or numbered list when it helps, then a one-line wrap-up). Be "
+        "approachable, slightly enthusiastic, and offer to dig deeper."
+    ),
+    "claude": (
+        "Answer in Claude's signature style: thoughtful and measured, "
+        "with careful nuance. Walk through your reasoning briefly before "
+        "the conclusion, hedge when uncertain, and note any caveats or "
+        "limitations honestly."
+    ),
+    "gemini": (
+        "Answer in Gemini's signature style: terse and well-structured. "
+        "Lead with the most concrete answer in 1-2 sentences, then a "
+        "compact table or short bullet list with the supporting facts. "
+        "Skip filler and avoid hedging unless strictly necessary."
+    ),
+    "canva": (
+        "You are coaching a learner using Canva for visual design. "
+        "Suggest punchy headline copy, layout ideas, and colour/typography "
+        "directions. Keep prose short; use short bulleted lists."
+    ),
+    "syllaby": (
+        "You are coaching a learner using Syllaby to script and storyboard "
+        "short videos. Suggest hooks, scene outlines, and on-screen text. "
+        "Keep prose short; use numbered scene-by-scene structure when fitting."
+    ),
+}
+
+
+def _system_prompt_for(tool_id: Optional[str]) -> str:
+    """Compose the system prompt: base tutor prompt + optional persona."""
+    persona = TOOL_PERSONAS.get((tool_id or "").lower().strip()) if tool_id else None
+    if persona:
+        return f"{TUTOR_SYSTEM_PROMPT}\n\nResponse style for this lesson:\n{persona}"
+    return TUTOR_SYSTEM_PROMPT
+
+
 async def get_ai_response(
     prompt: str,
     context: str = None,
     mode: str = "default",
     history: list = None,
+    tool_id: Optional[str] = None,
 ) -> tuple:
     """Get AI response using Anthropic Claude SDK, with demo fallback.
 
@@ -173,7 +223,7 @@ async def get_ai_response(
 
         response = await client.messages.create(
             model=CLAUDE_MODEL,
-            system=TUTOR_SYSTEM_PROMPT,
+            system=_system_prompt_for(tool_id),
             messages=messages,
             max_tokens=1024,
         )

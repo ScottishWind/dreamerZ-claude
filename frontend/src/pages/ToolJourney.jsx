@@ -1,12 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { BookOpen, FlaskConical, MessageCircle, ArrowLeft } from 'lucide-react';
+import { BookOpen, ArrowLeft } from 'lucide-react';
 import { useProgress } from '../hooks/useProgress';
 import { useLanguage } from '../hooks/useLanguage';
 import { useLearningProgress } from '../hooks/useLearningProgress';
 import { JourneyPlayer } from '../components/JourneyPlayer';
-import { PromptLabPanel } from '../components/PromptLabPanel';
-import { RoleplayChat } from '../components/RoleplayChat';
 
 const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
 
@@ -34,17 +32,13 @@ export const ToolJourney = () => {
 
   const { language } = useLanguage();
   const { startCourse, loadCourseEnrollment } = useLearningProgress();
-  // AI tools that get the Prompt Lab tab
-  const AI_TOOL_IDS = ['chatgpt', 'claude', 'gemini', 'canva', 'syllaby'];
-  const isAITool = AI_TOOL_IDS.includes(toolId);
-  const isEnglish = toolId === 'spoken-english-30day';
   const courseDbId = numericId(tool?.db_id || tool?.course_id || tool?.id);
 
-  // Build available tabs based on tool type
+  // Prompt-Lab and Roleplay used to be top-level tabs here; they now live
+  // inside each lesson's "Lab" tab (rendered by JourneyPlayer based on the
+  // course category), so this page only ever shows the lesson player.
   const tabs = [
     { id: 'modules', label: 'Modules', icon: BookOpen },
-    ...(isAITool ? [{ id: 'prompt-lab', label: 'Prompt Lab', icon: FlaskConical }] : []),
-    ...(isEnglish ? [{ id: 'roleplay', label: 'Roleplay', icon: MessageCircle }] : []),
   ];
 
   // Reset to modules tab when toolId changes
@@ -253,17 +247,6 @@ export const ToolJourney = () => {
         />
       )}
 
-      {activeTab === 'prompt-lab' && isAITool && (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <PromptLabPanel toolId={toolId} />
-        </div>
-      )}
-
-      {activeTab === 'roleplay' && isEnglish && (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <RoleplayChat toolId={toolId} />
-        </div>
-      )}
     </div>
   );
 };

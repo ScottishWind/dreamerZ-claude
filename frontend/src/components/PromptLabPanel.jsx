@@ -12,6 +12,19 @@ import axios from 'axios';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
+// Same key as useAuth — read once per request so a stale-on-mount token
+// after a refresh still authenticates correctly.
+const AUTH_STORAGE_KEY = 'dreamerz_beta_auth_v1';
+const getAuthHeaders = () => {
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    const token = raw ? JSON.parse(raw)?.token : null;
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  } catch {
+    return {};
+  }
+};
+
 // Preset templates
 const PRESETS = [
   {
@@ -166,13 +179,14 @@ export const PromptLabPanel = ({ toolId }) => {
     setActiveTab('base');
 
     try {
+      const headers = getAuthHeaders();
       const [baseRes, contextRes, bestRes] = await Promise.all([
-        axios.post(`${API}/ai`, { prompt: buildPrompt('base'), mode: 'prompt_lab_base' }),
+        axios.post(`${API}/ai`, { prompt: buildPrompt('base'), mode: 'prompt_lab_base', tool_id: toolId }, { headers }),
         context.trim()
-          ? axios.post(`${API}/ai`, { prompt: buildPrompt('context'), mode: 'prompt_lab_context' })
+          ? axios.post(`${API}/ai`, { prompt: buildPrompt('context'), mode: 'prompt_lab_context', tool_id: toolId }, { headers })
           : Promise.resolve({ data: { response: null, is_demo: false } }),
         context.trim() && constraints.trim()
-          ? axios.post(`${API}/ai`, { prompt: buildPrompt('best'), mode: 'prompt_lab_best' })
+          ? axios.post(`${API}/ai`, { prompt: buildPrompt('best'), mode: 'prompt_lab_best', tool_id: toolId }, { headers })
           : Promise.resolve({ data: { response: null, is_demo: false } })
       ]);
 
@@ -217,8 +231,9 @@ export const PromptLabPanel = ({ toolId }) => {
     try {
       const res = await axios.post(`${API}/ai`, {
         prompt: `Based on this goal: "${goal}", suggest helpful context that a student should provide to get a better AI response. Provide 3-4 specific suggestions as a comma-separated list. Be brief.`,
-        mode: 'prompt_lab_helper'
-      });
+        mode: 'prompt_lab_helper',
+        tool_id: toolId,
+      }, { headers: getAuthHeaders() });
 
       const suggestion = res.data.response;
       setContext(prev => prev ? `${prev}\n\n${suggestion}` : suggestion);
@@ -241,8 +256,9 @@ export const PromptLabPanel = ({ toolId }) => {
     try {
       const res = await axios.post(`${API}/ai`, {
         prompt: `Rewrite this prompt to be clearer and more structured: "${goal}". Keep the same intent but make it more specific and actionable. Return only the improved prompt, no explanation.`,
-        mode: 'prompt_lab_helper'
-      });
+        mode: 'prompt_lab_helper',
+        tool_id: toolId,
+      }, { headers: getAuthHeaders() });
 
       setGoal(res.data.response);
     } catch (err) {

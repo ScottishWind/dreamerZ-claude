@@ -32,11 +32,15 @@ class AIRequest(BaseModel):
     context: Optional[str] = Field(None, max_length=2000)
     mode: str = Field("default", max_length=50)
     session_id: Optional[str] = Field(None, max_length=100)
-    # Optional prior turns for multi-turn chat (Try-It panel uses this).
+    # Course slug — used to apply a per-tool persona overlay on the
+    # backend (e.g. ChatGPT-style vs. Claude-style vs. Gemini-style
+    # answer shape). Optional; default tutor persona is used if absent.
+    tool_id: Optional[str] = Field(None, max_length=100)
+    # Optional prior turns for multi-turn chat (Lab panel uses this).
     # Capped at 20 entries to keep token cost predictable.
     history: List[HistoryMessage] = Field(default_factory=list, max_length=20)
 
-    @field_validator("prompt", "context", "mode", "session_id", mode="before")
+    @field_validator("prompt", "context", "mode", "session_id", "tool_id", mode="before")
     @classmethod
     def reject_non_string(cls, v):
         if v is not None and not isinstance(v, str):

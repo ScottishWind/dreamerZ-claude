@@ -15,7 +15,7 @@ import { Progress } from './ui/progress';
 import { SafetyBanner } from './SafetyBanner';
 import { CoursePreviewVideo } from './CoursePreviewVideo';
 import { MarkdownContent } from './MarkdownContent';
-import { TryItChat } from './TryItChat';
+import { PromptLabPanel } from './PromptLabPanel';
 import { useLearningProgress } from '../hooks/useLearningProgress';
 
 const numericId = (value) => {
@@ -380,7 +380,7 @@ export const JourneyPlayer = ({
   const contentSections = [
     { id: 'learn', label: 'Learn', icon: BookOpen, color: 'primary' },
     { id: 'example', label: 'Example', icon: Lightbulb, color: 'amber' },
-    { id: 'activity', label: 'Try It', icon: Rocket, color: 'emerald' },
+    { id: 'activity', label: 'Lab', icon: Rocket, color: 'emerald' },
     { id: 'quiz', label: 'Quiz', icon: HelpCircle, color: 'violet' },
     ...(hasVocab ? [{ id: 'vocab', label: 'Vocab', icon: Languages, color: 'violet' }] : []),
     ...(hasSpeak ? [{ id: 'speak', label: 'Speak', icon: Mic, color: 'rose' }] : []),
@@ -765,8 +765,8 @@ export const JourneyPlayer = ({
                                 <Rocket className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-600" />
                               </div>
                               <div className="min-w-0 flex-1">
-                                <h3 className="font-bold text-slate-900 text-base sm:text-lg break-words">Try It Yourself</h3>
-                                <p className="text-sm text-slate-500 truncate">Hands-on practice</p>
+                                <h3 className="font-bold text-slate-900 text-base sm:text-lg break-words">Lab</h3>
+                                <p className="text-sm text-slate-500 truncate">Practise the lesson task with AI</p>
                               </div>
                             </div>
                             <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 rounded-xl sm:rounded-2xl p-4 sm:p-6 overflow-x-hidden">
@@ -774,13 +774,21 @@ export const JourneyPlayer = ({
                                 {activeModule.content.activity}
                               </MarkdownContent>
                             </div>
-                            {/* In-lesson chat / link-out for AI-category tools so the
-                                learner can practise the task right here. The panel
-                                derives its theming + behaviour from the course slug. */}
+                            {/* In-lesson AI workspace. AI courses get the Prompt-Lab
+                                builder (themed per tool via tool_id). Conversational
+                                English courses get the inline RoleplayChat for live
+                                speaking practice. Anything else just shows the
+                                activity markdown above. */}
                             {course?.category_id === 'ai-learning' && (
-                              <TryItChat
+                              <PromptLabPanel toolId={course.id} />
+                            )}
+                            {course?.category_id === 'spoken-writing-english' && (
+                              <RoleplayChat
+                                inline
                                 toolId={course.id}
-                                activity={activeModule.content.activity}
+                                moduleId={activeModule.id}
+                                moduleName={activeModule.title}
+                                speakingTask={activeModule.content?.speaking_task || ''}
                               />
                             )}
                           </motion.div>

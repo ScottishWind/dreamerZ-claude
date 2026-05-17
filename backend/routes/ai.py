@@ -40,6 +40,7 @@ async def ai_chat(
         ai_request.context,
         ai_request.mode,
         ai_request.history,
+        ai_request.tool_id,
     )
 
     # Safety check on output
@@ -56,9 +57,9 @@ async def ai_chat(
 @router.post("/roleplay")
 async def ai_roleplay(
     payload: RoleplayMessage,
-    authorization: Optional[str] = Header(None),
+    current_user: dict = Depends(require_trial_active),
 ):
-    """Roleplay chat endpoint for English practice."""
+    """Roleplay chat endpoint for English practice. Trial-gated like /ai."""
     response, is_demo = await get_roleplay_response(
         payload.role, payload.user_message, payload.history
     )

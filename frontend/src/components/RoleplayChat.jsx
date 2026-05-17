@@ -3,7 +3,17 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, Send, MessageCircle, Mic, User, Bot, ChevronDown } from 'lucide-react';
 import { Button } from './ui/button';
 import API_BASE from '../config/api';
-import { MAX_CHAT_MESSAGES, ROLEPLAY_HISTORY_LIMIT } from '../config/constants';
+import { MAX_CHAT_MESSAGES, ROLEPLAY_HISTORY_LIMIT, AUTH_STORAGE_KEY } from '../config/constants';
+
+const getAuthHeaders = () => {
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    const token = raw ? JSON.parse(raw)?.token : null;
+    return token ? { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } : { 'Content-Type': 'application/json' };
+  } catch {
+    return { 'Content-Type': 'application/json' };
+  }
+};
 
 const ROLES = [
   { id: 'friend', label: 'Friend (Riya)', emoji: '👋', description: 'Casual Bengali teen chat' },
@@ -13,7 +23,11 @@ const ROLES = [
   { id: 'interviewer', label: 'Interviewer', emoji: '💼', description: 'Mock interview' }
 ];
 
-export const RoleplayChat = ({ toolId, moduleId, moduleName, speakingTask, onClose }) => {
+// `inline` flips the layout from a fixed-position modal (used when the
+// speaking-task button on the lesson opens it as an overlay) to a normal
+// in-page block (used when JourneyPlayer's Lab tab embeds it directly for
+// Conversational English courses).
+export const RoleplayChat = ({ toolId, moduleId, moduleName, speakingTask, onClose, inline = false }) => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -56,7 +70,7 @@ export const RoleplayChat = ({ toolId, moduleId, moduleName, speakingTask, onClo
     try {
       const response = await fetch(`${API_BASE}/api/ai/roleplay`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           tool_id: toolId,
           module_id: moduleId,
@@ -98,39 +112,41 @@ export const RoleplayChat = ({ toolId, moduleId, moduleName, speakingTask, onClo
 
   const currentRole = ROLES.find(r => r.id === selectedRole) || ROLES[0];
 
-  return (
+  const card = (
     <motion.div
-      initial={{ opacity: 0, y: '100%' }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: '100%' }}
-      transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-      className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
+      className={
+        inline
+          ? 'bg-white border border-slate-200 rounded-2xl shadow-sm flex flex-col overflow-hidden w-full'
+          : 'bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col overflow-hidden'
+      }
+      style={
+        inline
+          ? { minHeight: 520 }
+          : { maxHeight: '85vh', minHeight: '500px' }
+      }
+      initial={inline ? false : { scale: 0.95 }}
+      animate={inline ? false : { scale: 1 }}
     >
-      <motion.div
-        className="bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col overflow-hidden"
-        style={{ maxHeight: '85vh', minHeight: '500px' }}
-        initial={{ scale: 0.95 }}
-        animate={{ scale: 1 }}
-      >
-        {/* Header */}
-        <div className="bg-gradient-to-r from-rose-500 to-pink-500 px-5 py-4 flex items-center justify-between flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center text-lg">
-              {currentRole.emoji}
-            </div>
-            <div>
-              <h3 className="font-bold text-white text-sm">AI Roleplay — {currentRole.label}</h3>
-              <p className="text-rose-100 text-xs">{moduleName}</p>
-            </div>
+      {/* Header */}
+      <div className="bg-gradient-to-r from-rose-500 to-pink-500 px-5 py-4 flex items-center justify-between flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center text-lg">
+            {currentRole.emoji}
           </div>
+          <div>
+            <h3 className="font-bold text-white text-sm">AI Roleplay — {currentRole.label}</h3>
+            {moduleName && <p className="text-rose-100 text-xs">{moduleName}</p>}
+          </div>
+        </div>
+        {!inline && onClose && (
           <button
             onClick={onClose}
             className="w-8 h-8 rounded-lg bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors"
           >
             <X className="w-4 h-4 text-white" />
           </button>
-        </div>
+        )}
+      </div>
 
         {/* Role Selector */}
         <div className="px-4 py-2 border-b border-slate-100 bg-slate-50 flex-shrink-0">
@@ -247,7 +263,26 @@ export const RoleplayChat = ({ toolId, moduleId, moduleName, speakingTask, onClo
             Practise speaking English with AI. Your conversations are not stored.
           </p>
         </div>
-      </motion.div>
+    </motion.div>
+  );
+
+  // Inline mode (embedded inside a lesson's Lab tab) renders the card
+  // directly. Modal mode (default) wraps it in the fixed-overlay backdrop
+  // and supports click-outside-to-close.
+  if (inline) {
+    return card;
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: '100%' }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: '100%' }}
+      transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+      className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+      onClick={(e) => e.target === e.currentTarget && onClose && onClose()}
+    >
+      {card}
     </motion.div>
   );
 };
