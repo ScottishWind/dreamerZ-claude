@@ -40,7 +40,7 @@ export const Landing = () => {
     <>
       <SEO
         title="Learn AI & Conversational English skills — DreamerZ_Lite"
-        description="Hands-on AI and Conversational English courses with real lessons and progress tracking. Suitable for learners 11 and above."
+        description="Hands-on AI and Conversational English courses with real lessons and progress tracking. Suitable for learners 11 years and above."
       />
       <div className="min-h-screen bg-white">
 
@@ -69,7 +69,7 @@ export const Landing = () => {
               </h1>
 
               <p className="text-lg text-slate-300 mb-9 max-w-xl mx-auto leading-relaxed">
-                Hands-on courses your school doesn't teach. Suitable for learners 11 and above.
+                Hands-on courses your school doesn't teach. Suitable for learners 11 years and above.
                 Track progress, take quizzes, build real skills.
               </p>
 
