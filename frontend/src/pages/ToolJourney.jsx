@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { BookOpen, FlaskConical, MessageCircle, ArrowLeft } from 'lucide-react';
+import { BookOpen, MessageCircle, ArrowLeft } from 'lucide-react';
 import { useProgress } from '../hooks/useProgress';
 import { useLanguage } from '../hooks/useLanguage';
 import { useLearningProgress } from '../hooks/useLearningProgress';
 import { JourneyPlayer } from '../components/JourneyPlayer';
-import { PromptLabPanel } from '../components/PromptLabPanel';
 import { RoleplayChat } from '../components/RoleplayChat';
 
 const API_BASE = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
@@ -15,8 +14,6 @@ const numericId = (value) => {
   return Number.isFinite(numberValue) && numberValue > 0 ? numberValue : null;
 };
 
-// AI tools that get the Prompt Lab tab
-const AI_TOOL_IDS = ['chatgpt', 'claude', 'gemini', 'canva', 'syllaby'];
 
 export const ToolJourney = () => {
   const { toolId, categoryName } = useParams();
@@ -36,14 +33,12 @@ export const ToolJourney = () => {
 
   const { language } = useLanguage();
   const { startCourse, loadCourseEnrollment } = useLearningProgress();
-  const isAITool = AI_TOOL_IDS.includes(toolId);
   const isEnglish = toolId === 'spoken-english-30day';
   const courseDbId = numericId(tool?.db_id || tool?.course_id || tool?.id);
 
   // Build available tabs based on tool type
   const tabs = [
     { id: 'modules', label: 'Modules', icon: BookOpen },
-    ...(isAITool ? [{ id: 'prompt-lab', label: 'Prompt Lab', icon: FlaskConical }] : []),
     ...(isEnglish ? [{ id: 'roleplay', label: 'Roleplay', icon: MessageCircle }] : []),
   ];
 
@@ -251,12 +246,6 @@ export const ToolJourney = () => {
           completeModule={completeModule}
           previewVideoUrl="https://www.youtube.com/embed/zegMOOKy_6A"
         />
-      )}
-
-      {activeTab === 'prompt-lab' && isAITool && (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <PromptLabPanel toolId={toolId} />
-        </div>
       )}
 
       {activeTab === 'roleplay' && isEnglish && (
