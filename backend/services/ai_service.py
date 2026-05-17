@@ -113,12 +113,21 @@ TUTOR_SYSTEM_PROMPT = (
 
 
 async def get_ai_response(
-    prompt: str, context: str = None, mode: str = "default"
+    prompt: str,
+    context: str = None,
+    mode: str = "default",
+    history: list = None,
 ) -> tuple:
     """Get AI response using Anthropic Claude SDK, with demo fallback.
 
     SECURITY: Context is passed as a separate user message instead of
     being concatenated into the system prompt (prevents prompt injection).
+
+    `history` is an optional list of `HistoryMessage`-shaped entries
+    (or dicts with `from_field`/`text` or `from`/`text`) representing prior
+    turns. Used by the Try-It chat to keep the conversation coherent.
+    Capped at 20 entries on the API layer; we additionally take the last 12
+    here to keep the prompt size sane.
     """
     if not ANTHROPIC_API_KEY:
         # Demo mode
@@ -146,6 +155,19 @@ async def get_ai_response(
             messages.append(
                 {"role": "assistant", "content": "Got it, I'll keep that context in mind."}
             )
+
+        # Prior turns (last 12) — tolerate both pydantic objects and dicts so
+        # the helper works for the AIRequest path and any direct callers.
+        for msg in (history or [])[-12:]:
+            if hasattr(msg, "from_field"):
+                role = msg.from_field
+                text = msg.text
+            else:
+                role = msg.get("from_field") or msg.get("from") or "user"
+                text = msg.get("text", "")
+            if not text:
+                continue
+            messages.append({"role": "user" if role == "user" else "assistant", "content": text})
 
         messages.append({"role": "user", "content": prompt})
 

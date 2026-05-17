@@ -15,6 +15,7 @@ import { Progress } from './ui/progress';
 import { SafetyBanner } from './SafetyBanner';
 import { CoursePreviewVideo } from './CoursePreviewVideo';
 import { MarkdownContent } from './MarkdownContent';
+import { TryItChat } from './TryItChat';
 import { useLearningProgress } from '../hooks/useLearningProgress';
 
 const numericId = (value) => {
@@ -757,7 +758,7 @@ export const JourneyPlayer = ({
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
-                            className="overflow-x-hidden"
+                            className="overflow-x-hidden space-y-5"
                           >
                             <div className="flex items-center gap-3 mb-4 sm:mb-6">
                               <div className="w-10 h-10 sm:w-12 sm:h-12 bg-emerald-100 rounded-xl sm:rounded-2xl flex items-center justify-center flex-shrink-0">
@@ -773,6 +774,15 @@ export const JourneyPlayer = ({
                                 {activeModule.content.activity}
                               </MarkdownContent>
                             </div>
+                            {/* In-lesson chat / link-out for AI-category tools so the
+                                learner can practise the task right here. The panel
+                                derives its theming + behaviour from the course slug. */}
+                            {course?.category_id === 'ai-learning' && (
+                              <TryItChat
+                                toolId={course.id}
+                                activity={activeModule.content.activity}
+                              />
+                            )}
                           </motion.div>
                         )}
 

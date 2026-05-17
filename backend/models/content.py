@@ -18,11 +18,23 @@ class StatusCheckCreate(BaseModel):
     client_name: str
 
 
+class HistoryMessage(BaseModel):
+    """Typed message for chat / roleplay history (replaces unvalidated dict)."""
+
+    from_field: str = Field(..., alias="from", pattern="^(user|assistant)$")
+    text: str = Field(..., min_length=1, max_length=2000)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class AIRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=2000)
     context: Optional[str] = Field(None, max_length=2000)
     mode: str = Field("default", max_length=50)
     session_id: Optional[str] = Field(None, max_length=100)
+    # Optional prior turns for multi-turn chat (Try-It panel uses this).
+    # Capped at 20 entries to keep token cost predictable.
+    history: List[HistoryMessage] = Field(default_factory=list, max_length=20)
 
     @field_validator("prompt", "context", "mode", "session_id", mode="before")
     @classmethod
@@ -36,15 +48,6 @@ class AIResponse(BaseModel):
     response: str
     is_demo: bool = False
     tokens_used: Optional[int] = None
-
-
-class HistoryMessage(BaseModel):
-    """Typed message for roleplay history (replaces unvalidated dict)."""
-
-    from_field: str = Field(..., alias="from", pattern="^(user|assistant)$")
-    text: str = Field(..., min_length=1, max_length=1000)
-
-    model_config = ConfigDict(populate_by_name=True)
 
 
 class RoleplayMessage(BaseModel):

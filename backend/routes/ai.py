@@ -31,7 +31,10 @@ async def ai_chat(request: Request, ai_request: AIRequest):
 
     # Get AI response
     response, is_demo = await get_ai_response(
-        ai_request.prompt, ai_request.context, ai_request.mode
+        ai_request.prompt,
+        ai_request.context,
+        ai_request.mode,
+        ai_request.history,
     )
 
     # Safety check on output
