@@ -718,3 +718,44 @@ async def get_media(asset_id: str, session: AsyncSession = Depends(get_db)):
         media_type=asset.mime_type or "application/octet-stream",
         filename=asset.original_filename,
     )
+
+
+@router.get("/media/{asset_id}/download")
+async def download_media(asset_id: str, session: AsyncSession = Depends(get_db)):
+    """Download a media asset as attachment.
+
+    For Cloudinary assets, redirect to a URL transformed with `fl_attachment`.
+    For local files, serve as an attachment response.
+    """
+    try:
+        asset_pk = int(asset_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid asset ID")
+
+    result = await session.execute(
+        select(MediaAsset).where(MediaAsset.id == asset_pk)
+    )
+    asset = result.scalars().first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Media asset not found")
+
+    url = asset.cloudinary_url or ""
+    if url.startswith("http"):
+        download_url = url
+        if "res.cloudinary.com" in url and "/upload/" in url:
+            download_url = url.replace("/upload/", "/upload/fl_attachment/")
+        return RedirectResponse(url=download_url)
+
+    uploads_root = pathlib.Path(__file__).resolve().parent.parent
+    local_path = uploads_root / url
+    if not local_path.exists():
+        raise HTTPException(status_code=404, detail="Media file not found on disk")
+
+    return FileResponse(
+        path=str(local_path),
+        media_type=asset.mime_type or "application/octet-stream",
+        filename=asset.original_filename,
+        headers={
+            "Content-Disposition": f'attachment; filename="{asset.original_filename or local_path.name}"'
+        },
+    )

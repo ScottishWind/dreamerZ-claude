@@ -5,7 +5,7 @@ import {
   BookOpen, Lightbulb, Rocket, Play, Award,
   Clock, Sparkles, ArrowLeft, Volume2,
   Languages, Mic, MessageCircle,
-  FileText, Paperclip, HelpCircle
+  FileText, Paperclip, HelpCircle, Download
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Quiz } from './Quiz';
@@ -37,6 +37,7 @@ export const JourneyPlayer = ({
   previewMode = false,
 }) => {
   const course = courseProp || tool;
+  const backendBase = (process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '');
   const { startLesson, sendLessonHeartbeat, completeLesson, startAssessment, submitAssessment, getAttemptsCount } = useLearningProgress();
   const heartbeatIntervalRef = useRef(null);
 
@@ -945,8 +946,10 @@ export const JourneyPlayer = ({
                               <div className="space-y-3">
                                 {activeModule.media_assets.map((asset) => {
                                   const kind = asset.asset_type || asset.type;
-                                  const url = asset.cloudinary_url
-                                    || `${(process.env.REACT_APP_BACKEND_URL || '').replace(/\/+$/, '')}/api/content/media/${asset.id}`;
+                                  const mediaEndpoint = `${backendBase}/api/content/media/${asset.id}`;
+                                  const viewUrl = mediaEndpoint;
+                                  const downloadUrl = `${mediaEndpoint}/download`;
+                                  const url = asset.cloudinary_url || mediaEndpoint;
                                   if (kind === 'image') {
                                     return (
                                       <div key={asset.id} className="rounded-xl overflow-hidden border border-slate-200 bg-white">
@@ -957,36 +960,63 @@ export const JourneyPlayer = ({
                                           loading="lazy"
                                         />
                                         {asset.original_filename && (
-                                          <p className="px-3 py-2 text-xs text-slate-500 truncate">{asset.original_filename}</p>
+                                          <div className="px-3 py-2 flex items-center justify-between gap-3">
+                                            <p className="text-xs text-slate-500 truncate">{asset.original_filename}</p>
+                                            <div className="flex items-center gap-2 flex-shrink-0">
+                                              <a
+                                                href={downloadUrl}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="inline-flex items-center gap-1 text-xs text-slate-700 hover:text-slate-900"
+                                              >
+                                                <Download className="w-3.5 h-3.5" />
+                                                Download
+                                              </a>
+                                            </div>
+                                          </div>
                                         )}
                                       </div>
                                     );
                                   }
                                   if (kind === 'video') {
                                     return (
-                                      <video
-                                        key={asset.id}
-                                        controls
-                                        preload="metadata"
-                                        poster={asset.poster_url || undefined}
-                                        className="w-full rounded-xl bg-black"
-                                      >
-                                        {asset.streaming_url && (
-                                          <source src={asset.streaming_url} type="application/x-mpegURL" />
-                                        )}
-                                        <source src={url} type={asset.mime_type || 'video/mp4'} />
-                                        Your browser cannot play this video.
-                                      </video>
+                                      <div key={asset.id} className="rounded-xl overflow-hidden border border-slate-200 bg-white">
+                                        <video
+                                          controls
+                                          preload="metadata"
+                                          poster={asset.poster_url || undefined}
+                                          className="w-full bg-black"
+                                        >
+                                          {asset.streaming_url && (
+                                            <source src={asset.streaming_url} type="application/x-mpegURL" />
+                                          )}
+                                          <source src={url} type={asset.mime_type || 'video/mp4'} />
+                                          Your browser cannot play this video.
+                                        </video>
+                                        <div className="px-3 py-2 flex items-center justify-between gap-3">
+                                          <p className="text-xs text-slate-500 truncate">
+                                            {asset.original_filename || 'Video file'}
+                                          </p>
+                                          <div className="flex items-center gap-2 flex-shrink-0">
+                                            <a
+                                              href={downloadUrl}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="inline-flex items-center gap-1 text-xs text-slate-700 hover:text-slate-900"
+                                            >
+                                              <Download className="w-3.5 h-3.5" />
+                                              Download
+                                            </a>
+                                          </div>
+                                        </div>
+                                      </div>
                                     );
                                   }
-                                  // Document / unknown — show as a download link.
+                                  // Document / unknown — show explicit view + download controls.
                                   return (
-                                    <a
+                                    <div
                                       key={asset.id}
-                                      href={url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="flex items-center gap-3 bg-white border border-slate-200 rounded-xl px-4 py-3 hover:border-sky-300 hover:bg-sky-50 transition-colors"
+                                      className="flex items-center gap-3 bg-white border border-slate-200 rounded-xl px-4 py-3"
                                     >
                                       <FileText className="w-5 h-5 text-slate-400 flex-shrink-0" />
                                       <div className="flex-1 min-w-0">
@@ -999,7 +1029,18 @@ export const JourneyPlayer = ({
                                           </p>
                                         ) : null}
                                       </div>
-                                    </a>
+                                      <div className="flex items-center gap-2 flex-shrink-0">
+                                        <a
+                                          href={downloadUrl}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="inline-flex items-center gap-1 text-xs text-slate-700 hover:text-slate-900"
+                                        >
+                                          <Download className="w-3.5 h-3.5" />
+                                          Download
+                                        </a>
+                                      </div>
+                                    </div>
                                   );
                                 })}
                               </div>
