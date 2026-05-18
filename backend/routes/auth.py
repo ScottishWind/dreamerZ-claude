@@ -83,14 +83,21 @@ async def register_user(user: UserCreate, session: AsyncSession = Depends(get_db
             status_code=400,
             detail="Password must be at least 8 characters long.",
         )
+    # Enforce same password strength rules as frontend
+    if not any(c.isupper() for c in password) or not any(c.isdigit() for c in password):
+        raise HTTPException(
+            status_code=400,
+            detail="Password must contain at least 1 uppercase letter and 1 number.",
+        )
 
     result = await session.execute(
         select(User).where(or_(User.username == username, User.email == email))
     )
     existing_user = result.scalars().first()
     if existing_user:
+        # Use generic error to prevent username/email enumeration
         raise HTTPException(
-            status_code=400, detail="Username or email is already in use."
+            status_code=400, detail="Registration failed. Please try again."
         )
 
     lang = user.preferred_language.strip().lower()
@@ -271,6 +278,12 @@ async def change_password(
             status_code=400,
             detail="Password must be at least 8 characters long.",
         )
+    # Enforce same password strength rules as registration
+    if not any(c.isupper() for c in new_password) or not any(c.isdigit() for c in new_password):
+        raise HTTPException(
+            status_code=400,
+            detail="Password must contain at least 1 uppercase letter and 1 number.",
+        )
 
     result = await session.execute(
         select(User).where(User.username == current_user["username"])
@@ -338,6 +351,12 @@ async def forgot_password(
         raise HTTPException(
             status_code=400,
             detail="Password must be at least 8 characters long.",
+        )
+    # Enforce same password strength rules as registration
+    if not any(c.isupper() for c in new_password) or not any(c.isdigit() for c in new_password):
+        raise HTTPException(
+            status_code=400,
+            detail="Password must contain at least 1 uppercase letter and 1 number.",
         )
     if not login_id:
         raise HTTPException(

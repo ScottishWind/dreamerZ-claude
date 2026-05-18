@@ -14,7 +14,19 @@ const sanitizeInput = (input) => {
     .replace(/["']/g, '') // Remove quotes to prevent attribute injection
     .replace(/\/\*/g, '') // Remove comment start
     .replace(/\*\//g, '') // Remove comment end
-    .replace(/--/g, ''); // Remove SQL comment
+    .replace(/--/g, '') // Remove SQL comment
+    .replace(/javascript:/gi, '') // Remove javascript: protocol
+    .replace(/on\w+=/gi, ''); // Remove inline event handlers
+};
+
+// Sanitize error messages to prevent XSS
+const sanitizeError = (error) => {
+  if (typeof error !== 'string') return 'An error occurred';
+  return error
+    .replace(/[<>]/g, '')
+    .replace(/["']/g, '')
+    .replace(/javascript:/gi, '')
+    .replace(/on\w+=/gi, '');
 };
 
 const ROLE_OPTIONS = [
@@ -69,7 +81,7 @@ export const Register = () => {
       await register({ username: sanitizedName, email, password, role, preferred_language: preferredLanguage });
       navigate('/learn');
     } catch (err) {
-      setError(err.message || 'Unable to create account.');
+      setError(sanitizeError(err.message) || 'Unable to create account.');
     } finally {
       setLoading(false);
     }
@@ -106,7 +118,13 @@ export const Register = () => {
       return false;
     }
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+    if (trimmedEmail.length > 254) {
+      setEmailError('Email is too long (max 254 characters).');
+      return false;
+    }
+
+    // More strict email validation: require at least 2 chars in TLD
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(trimmedEmail)) {
       setEmailError('Please enter a valid email address (e.g., user@example.com).');
       return false;
     }
@@ -178,6 +196,7 @@ export const Register = () => {
                     placeholder="Your name"
                     required
                     minLength={3}
+                    maxLength={50}
                   />
                 </div>
                 {nameError && (
@@ -208,6 +227,7 @@ export const Register = () => {
                     className={`w-full rounded-xl border-0 bg-transparent py-3 pl-12 pr-4 outline-none ${emailError ? 'text-rose-900' : 'text-slate-900'}`}
                     placeholder="email@example.com"
                     required
+                    maxLength={254}
                   />
                 </div>
                 {emailError && (
@@ -238,6 +258,7 @@ export const Register = () => {
                     placeholder="Create a password"
                     required
                     minLength={8}
+                    maxLength={128}
                   />
                   <button
                     type="button"
