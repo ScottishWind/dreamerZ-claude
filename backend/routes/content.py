@@ -55,6 +55,7 @@ def _serialize_media_asset(asset: MediaAsset) -> dict:
         "duration_seconds": asset.duration_seconds,
         "sort_order": asset.sort_order,
         "tags": asset.tags,
+        "is_highlight": asset.is_highlight,
     }
 
 

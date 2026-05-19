@@ -590,13 +590,6 @@ export const JourneyPlayer = ({
 
           {/* Main Content Area */}
           <div className="col-span-12 lg:col-span-9 order-1 lg:order-2 w-full min-w-0">
-            {/* Course Preview Video */}
-            {previewVideoUrl && (
-              <CoursePreviewVideo
-                videoUrl={previewVideoUrl}
-                title={`${course.name} — Course Overview`}
-              />
-            )}
 
             <AnimatePresence mode="wait">
               <motion.div
@@ -703,6 +696,40 @@ export const JourneyPlayer = ({
                             exit={{ opacity: 0 }}
                             className="prose prose-sm sm:prose prose-slate max-w-none overflow-x-hidden"
                           >
+                            {/* Lesson Highlight Video - show at the top if a media asset is highlighted */}
+                            {(() => {
+                              const highlightedMedia = Array.isArray(activeModule.media_assets) 
+                                ? activeModule.media_assets.find(asset => asset.is_highlight)
+                                : null;
+                              
+                              if (!highlightedMedia) return null;
+                              
+                              const kind = highlightedMedia.asset_type || highlightedMedia.type;
+                              const mimeType = highlightedMedia.mime_type;
+                              const isYoutube = mimeType === 'video/youtube' || highlightedMedia.cloudinary_url?.includes('youtube');
+                              
+                              let videoUrl = null;
+                              let videoTitle = highlightedMedia.original_filename || 'Lesson Video';
+                              
+                              if (kind === 'video') {
+                                // Use the video file (streaming_url if available, otherwise cloudinary_url)
+                                videoUrl = highlightedMedia.streaming_url || highlightedMedia.cloudinary_url;
+                              } else if (isYoutube) {
+                                // Use YouTube link
+                                videoUrl = highlightedMedia.cloudinary_url;
+                              }
+                              
+                              if (!videoUrl) return null;
+                              
+                              return (
+                                <div className="mb-6">
+                                  <CoursePreviewVideo
+                                    videoUrl={videoUrl}
+                                    title={videoTitle}
+                                  />
+                                </div>
+                              );
+                            })()}
                             <div className="flex items-center gap-3 mb-4 sm:mb-6">
                               <div className="w-10 h-10 sm:w-12 sm:h-12 bg-primary/10 rounded-xl sm:rounded-2xl flex items-center justify-center flex-shrink-0">
                                 <BookOpen className="w-5 h-5 sm:w-6 sm:h-6 text-primary" />
@@ -941,10 +968,11 @@ export const JourneyPlayer = ({
                             {/* Attached files — images / videos / documents. This tab used
                                 to render only `content.study_notes` (a markdown blob), so
                                 uploaded media never showed up. Now we render the files
-                                first and fall back to study notes / an empty state below. */}
+                                first and fall back to study notes / an empty state below.
+                                Highlighted media is excluded since it's shown at the top of the Learn tab. */}
                             {Array.isArray(activeModule.media_assets) && activeModule.media_assets.length > 0 ? (
                               <div className="space-y-3">
-                                {activeModule.media_assets.map((asset) => {
+                                {activeModule.media_assets.filter(asset => !asset.is_highlight).map((asset) => {
                                   const kind = asset.asset_type || asset.type;
                                   const mediaEndpoint = `${backendBase}/api/content/media/${asset.id}`;
                                   const viewUrl = mediaEndpoint;
@@ -1013,6 +1041,28 @@ export const JourneyPlayer = ({
                                     );
                                   }
                                   // Document / unknown — show explicit view + download controls.
+                                  const isYoutube = asset.mime_type === 'video/youtube' || asset.cloudinary_url?.includes('youtube');
+                                  
+                                  if (isYoutube) {
+                                    return (
+                                      <div key={asset.id} className="rounded-xl overflow-hidden border border-slate-200 bg-white">
+                                        <div className="aspect-video bg-slate-900">
+                                          <iframe
+                                            src={asset.cloudinary_url}
+                                            title={asset.original_filename}
+                                            className="w-full h-full"
+                                            frameBorder="0"
+                                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                            allowFullScreen
+                                          />
+                                        </div>
+                                        <div className="px-3 py-2">
+                                          <p className="text-xs text-slate-500 truncate">{asset.original_filename || 'YouTube Video'}</p>
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+                                  
                                   return (
                                     <div
                                       key={asset.id}

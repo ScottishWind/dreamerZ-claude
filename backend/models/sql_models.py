@@ -384,6 +384,8 @@ class MediaAsset(Base):
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     tags: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     uploaded_by: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # Flag to mark this media as the lesson highlight (featured video/media)
+    is_highlight: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -407,6 +409,7 @@ class MediaAsset(Base):
             "duration_seconds": self.duration_seconds,
             "width": self.width,
             "height": self.height,
+            "is_highlight": self.is_highlight,
             "poster_url": self.poster_url,
             "streaming_url": self.streaming_url,
             "upload_status": self.upload_status,

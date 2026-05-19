@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   FileText, HelpCircle, Sparkles, Paperclip, Save, RefreshCw,
-  Upload, X, Trash2, AlertTriangle, CheckCircle2, Wand2,
+  Upload, X, Trash2, AlertTriangle, CheckCircle2, Wand2, Star,
 } from 'lucide-react';
 import { QuizEditor } from './QuizEditor';
 import { formatErrorDetail } from '../../lib/utils';
@@ -84,6 +84,11 @@ export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted
   // Media state — uploads now go through <MediaUploader>, which manages
   // its own uploading/progress state. We only keep the rendered list here.
   const [mediaAssets, setMediaAssets] = useState([]);
+  
+  // YouTube link state
+  const [youtubeUrl, setYoutubeUrl] = useState('');
+  const [youtubeFilename, setYoutubeFilename] = useState('');
+  const [addingYoutube, setAddingYoutube] = useState(false);
 
   // Delete confirmation
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -204,12 +209,58 @@ export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted
 
   // ── Media —— upload is owned by <MediaUploader>; we only handle removal. ──
   const removeMedia = async (assetId) => {
+    if (readOnly) return;
     try {
       await adminFetch(`/media/${assetId}`, token, { method: 'DELETE' });
       setMediaAssets(prev => prev.filter(a => a.id !== assetId));
-      showSuccess('File removed');
+      showSuccess('Media removed');
+      onLessonUpdated?.(lessonId);
     } catch (e) {
       setError(e.message);
+    }
+  };
+
+  const setHighlight = async (assetId, isHighlight) => {
+    if (readOnly) return;
+    try {
+      const updatedAsset = await adminFetch(`/media/${assetId}/highlight`, token, {
+        method: 'PUT',
+        body: JSON.stringify({ is_highlight: isHighlight }),
+      });
+      setMediaAssets(prev => prev.map(a => 
+        a.id === assetId ? { ...a, is_highlight: isHighlight } : 
+        isHighlight ? { ...a, is_highlight: false } : a
+      ));
+      showSuccess(isHighlight ? 'Media set as lesson highlight' : 'Highlight removed');
+      // Reload lesson to ensure backend state is reflected
+      await loadLesson();
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  const addYoutubeLink = async () => {
+    if (readOnly || !youtubeUrl.trim()) return;
+    setAddingYoutube(true);
+    setError('');
+    try {
+      const asset = await adminFetch('/media/youtube', token, {
+        method: 'POST',
+        body: JSON.stringify({
+          youtube_url: youtubeUrl.trim(),
+          lesson_slug: lessonId,
+          original_filename: youtubeFilename.trim() || 'YouTube Video',
+        }),
+      });
+      setMediaAssets(prev => [...prev, asset]);
+      setYoutubeUrl('');
+      setYoutubeFilename('');
+      showSuccess('YouTube link added');
+      onLessonUpdated?.(lessonId);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setAddingYoutube(false);
     }
   };
 
@@ -482,12 +533,43 @@ export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted
             />
           </div>
 
+          {/* YouTube Link Input */}
+          {!readOnly && (
+            <div className="bg-slate-50 rounded-lg p-3 space-y-2">
+              <label className="text-xs font-medium text-slate-700 block">Add YouTube Video</label>
+              <input
+                type="url"
+                value={youtubeUrl}
+                onChange={(e) => setYoutubeUrl(e.target.value)}
+                placeholder="https://www.youtube.com/watch?v=..."
+                disabled={addingYoutube}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:bg-slate-100"
+              />
+              <input
+                type="text"
+                value={youtubeFilename}
+                onChange={(e) => setYoutubeFilename(e.target.value)}
+                placeholder="Video name (optional)"
+                disabled={addingYoutube}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:bg-slate-100"
+              />
+              <button
+                onClick={addYoutubeLink}
+                disabled={addingYoutube || !youtubeUrl.trim()}
+                className="w-full bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2 hover:bg-primary/90 disabled:opacity-50"
+              >
+                {addingYoutube ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                {addingYoutube ? 'Adding...' : 'Add YouTube Link'}
+              </button>
+            </div>
+          )}
+
           {mediaAssets.length === 0 ? (
             <div className="text-center text-slate-400 py-8 bg-slate-50 rounded-lg text-sm">
               No files attached to this lesson yet
             </div>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-3">
               {mediaAssets.map(asset => {
                 // Backend uses `asset_type` (the model + serialisers all emit
                 // it); the old `asset.type` we used to read here is always
@@ -497,20 +579,88 @@ export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted
                 const kind = asset.asset_type || asset.type;
                 const ext = (asset.original_filename || '').split('.').pop() || '';
                 const isImage = kind === 'image';
+                const isVideo = kind === 'video';
+                const isYoutube = asset.mime_type === 'video/youtube' || asset.cloudinary_url?.includes('youtube');
+                const canBeHighlight = isVideo || isYoutube;
                 // Prefer the direct Cloudinary URL if the asset has one
                 // (newer rows do); fall back to the backend proxy.
                 const imgSrc = asset.cloudinary_url || `${API_BASE}/api/content/media/${asset.id}`;
+                
+                // Show expanded preview for YouTube links
+                if (isYoutube) {
+                  return (
+                    <div key={asset.id} className={`bg-white border-2 rounded-lg overflow-hidden ${asset.is_highlight ? 'border-amber-400 bg-amber-50 ring-2 ring-amber-200' : 'border-slate-200'}`}>
+                      <div className="flex items-center gap-3 px-3 py-2 border-b border-slate-100">
+                        <FileText className="w-5 h-5 text-slate-400" />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-medium text-slate-700 truncate">{asset.original_filename}</p>
+                            {asset.is_highlight && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-500 text-white text-[10px] font-semibold rounded-full flex-shrink-0">
+                                <Star className="w-3 h-3 fill-current" />
+                                HIGHLIGHTED
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-400">YouTube</p>
+                        </div>
+                        {canBeHighlight && !readOnly && (
+                          <button
+                            onClick={() => setHighlight(asset.id, !asset.is_highlight)}
+                            className={`p-1.5 rounded ${asset.is_highlight ? 'text-amber-500 bg-amber-100' : 'text-slate-400 hover:text-amber-500 hover:bg-amber-50'}`}
+                            title={asset.is_highlight ? 'Remove as highlight' : 'Set as lesson highlight'}
+                          >
+                            <Star className={`w-4 h-4 ${asset.is_highlight ? 'fill-current' : ''}`} />
+                          </button>
+                        )}
+                        {!readOnly && (
+                          <button onClick={() => removeMedia(asset.id)} className="p-1 text-slate-400 hover:text-red-500 rounded">
+                            <X className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                      <div className="aspect-video bg-slate-900">
+                        <iframe
+                          src={asset.cloudinary_url}
+                          title={asset.original_filename}
+                          className="w-full h-full"
+                          frameBorder="0"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen
+                        />
+                      </div>
+                    </div>
+                  );
+                }
+                
                 return (
-                <div key={asset.id} className="flex items-center gap-3 bg-white border border-slate-200 rounded-lg px-3 py-2">
+                <div key={asset.id} className={`flex items-center gap-3 bg-white border-2 rounded-lg px-3 py-2 ${asset.is_highlight ? 'border-amber-400 bg-amber-50 ring-2 ring-amber-200' : 'border-slate-200'}`}>
                   {isImage ? (
                     <img src={imgSrc} alt={asset.alt_text || asset.original_filename || ''} className="w-10 h-10 rounded object-cover" />
                   ) : (
                     <FileText className="w-5 h-5 text-slate-400" />
                   )}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-slate-700 truncate">{asset.original_filename}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-slate-700 truncate">{asset.original_filename}</p>
+                      {asset.is_highlight && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-500 text-white text-[10px] font-semibold rounded-full flex-shrink-0">
+                          <Star className="w-3 h-3 fill-current" />
+                          HIGHLIGHTED
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-slate-400">{ext.toUpperCase()}</p>
                   </div>
+                  {canBeHighlight && !readOnly && (
+                    <button
+                      onClick={() => setHighlight(asset.id, !asset.is_highlight)}
+                      className={`p-1.5 rounded ${asset.is_highlight ? 'text-amber-500 bg-amber-100' : 'text-slate-400 hover:text-amber-500 hover:bg-amber-50'}`}
+                      title={asset.is_highlight ? 'Remove as highlight' : 'Set as lesson highlight'}
+                    >
+                      <Star className={`w-4 h-4 ${asset.is_highlight ? 'fill-current' : ''}`} />
+                    </button>
+                  )}
                   {!readOnly && (
                     <button onClick={() => removeMedia(asset.id)} className="p-1 text-slate-400 hover:text-red-500 rounded">
                       <X className="w-4 h-4" />
@@ -519,6 +669,10 @@ export const LessonEditor = ({ lessonId, token, onLessonUpdated, onLessonDeleted
                 </div>
               );
               })}
+              <div className="text-xs text-slate-500 mt-2">
+                <Star className="w-3 h-3 inline mr-1" />
+                Star a video or YouTube link to set it as the lesson highlight (featured media)
+              </div>
             </div>
           )}
         </div>

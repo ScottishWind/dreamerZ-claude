@@ -10,7 +10,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from pydantic import BaseModel
-from sqlalchemy import select, func, or_, delete
+from sqlalchemy import select, func, or_, delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -1215,6 +1215,7 @@ async def create_draft_version(
                     sort_order=asset.sort_order,
                     tags=asset.tags,
                     uploaded_by=asset.uploaded_by,
+                    is_highlight=asset.is_highlight,
                 ))
 
     await session.commit()
@@ -1449,6 +1450,7 @@ async def publish_course(
                         sort_order=draft_asset.sort_order,
                         tags=draft_asset.tags,
                         uploaded_by=draft_asset.uploaded_by,
+                        is_highlight=draft_asset.is_highlight,
                     ))
 
         # Clear the draft_version_id reference
@@ -1854,6 +1856,7 @@ async def get_lesson(
             "alt_text": a.alt_text,
             "sort_order": a.sort_order,
             "tags": a.tags,
+            "is_highlight": a.is_highlight,
         }
         for a in sorted(lesson.media_assets, key=lambda a: a.sort_order)
     ]
@@ -2559,6 +2562,103 @@ async def delete_media(
         raise HTTPException(status_code=404, detail="Media asset not found")
     await session.commit()
     return {"detail": f"Asset {asset_id} deleted"}
+
+
+@content_router.put("/media/{asset_id}/highlight")
+async def set_media_highlight(
+    asset_id: int,
+    body: dict,
+    session: AsyncSession = Depends(get_db),
+):
+    """Set a media asset as the lesson highlight.
+
+    When is_highlight is true, this asset will be displayed as the featured
+    media in the lesson (replacing the default YouTube video).
+    Only one asset per lesson can be highlighted at a time.
+    """
+    result = await session.execute(select(MediaAsset).where(MediaAsset.id == asset_id))
+    asset = result.scalars().first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Media asset not found")
+
+    is_highlight = body.get("is_highlight", False)
+
+    if is_highlight:
+        # Unhighlight all other assets in the same lesson
+        await session.execute(
+            update(MediaAsset)
+            .where(MediaAsset.lesson_id == asset.lesson_id)
+            .where(MediaAsset.id != asset_id)
+            .values(is_highlight=False)
+        )
+
+    asset.is_highlight = is_highlight
+    await session.commit()
+    await session.refresh(asset)
+
+    return asset.to_dict()
+
+
+@content_router.post("/media/youtube")
+async def add_youtube_link(
+    body: dict,
+    session: AsyncSession = Depends(get_db),
+):
+    """Add a YouTube link as a media asset.
+
+    This allows admins to add YouTube videos without uploading files to Cloudinary.
+    The YouTube URL is stored directly in the cloudinary_url field.
+    """
+    youtube_url = body.get("youtube_url")
+    lesson_slug = body.get("lesson_slug")
+    original_filename = body.get("original_filename", "YouTube Video")
+    
+    if not youtube_url:
+        raise HTTPException(status_code=400, detail="youtube_url is required")
+    
+    if not lesson_slug:
+        raise HTTPException(status_code=400, detail="lesson_slug is required")
+    
+    # Look up lesson by slug to get the database ID
+    result = await session.execute(select(Lesson).where(Lesson.slug == lesson_slug))
+    lesson = result.scalars().first()
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+    
+    lesson_id = lesson.id
+    
+    # Validate YouTube URL
+    if not any(domain in youtube_url for domain in ["youtube.com", "youtu.be"]):
+        raise HTTPException(status_code=400, detail="Invalid YouTube URL")
+    
+    # Convert to embed URL if needed
+    embed_url = youtube_url
+    if "watch?v=" in youtube_url:
+        video_id = youtube_url.split("watch?v=")[1].split("&")[0]
+        embed_url = f"https://www.youtube.com/embed/{video_id}"
+    elif "youtu.be/" in youtube_url:
+        video_id = youtube_url.split("youtu.be/")[1].split("?")[0]
+        embed_url = f"https://www.youtube.com/embed/{video_id}"
+    
+    # Create media asset
+    asset = MediaAsset(
+        lesson_id=lesson_id,
+        asset_type="document",
+        cloudinary_url=embed_url,
+        cloudinary_public_id=f"youtube_{lesson_id}_{youtube_url[:50]}",
+        original_filename=original_filename,
+        mime_type="video/youtube",
+        file_size_bytes=0,
+        alt_text="",
+        tags={"source": "youtube"},
+        uploaded_by="admin",
+    )
+    
+    session.add(asset)
+    await session.commit()
+    await session.refresh(asset)
+    
+    return asset.to_dict()
 
 
 # ══════════════════════════════════════════════════════════
